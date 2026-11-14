@@ -1,0 +1,45 @@
+{
+  "name": "ebb",
+  "author": "Bilge Arikan",
+  "version": "0.1.0",
+  "keywords": ["pebble-app"],
+  "private": true,
+  "dependencies": {
+    "pebble-clay": "^1.0.4"
+  },
+  "pebble": {
+    "displayName": "Ebb",
+    "uuid": "69e08c7b-89c8-489f-9b2d-5dfb193afc5e",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "emery"
+    ],
+    "capabilities": [
+      "health",
+      "configurable"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "Intensity",
+      "HrvUnits",
+      "MaxHr",
+      "ResetBaseline",
+      "NightsBlob",
+      "NightsCount",
+      "RestoreNights"
+    ],
+    "resources": {
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MENU_ICON",
+          "file": "images/menu_icon.png",
+          "menuIcon": true
+        }
+      ]
+    }
+  }
+}
