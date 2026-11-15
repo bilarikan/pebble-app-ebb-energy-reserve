@@ -24,6 +24,7 @@ enum {
   EF_LOW_CONF = 1 << 1,   // resumed after a long gap, cleared by the next full night
   EF_ASLEEP   = 1 << 2,
   EF_AWAY_EST = 1 << 3,   // not worn, and draining at the assumed daytime rate (else frozen)
+  EF_RESTARTED = 1 << 4,  // score restarted after a day or more away, cleared by the next full night
 };
 
 // EngMinute.flags

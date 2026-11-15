@@ -149,6 +149,8 @@ static void canvas_update(Layer *layer, GContext *ctx) {
     notice = "Sampler off: press Select";
   } else if (sampler == SAMPLER_HRV_REFUSED) {
     notice = "HRV refused: heart rate on?";
+  } else if (e->st.flags & EF_RESTARTED) {
+    notice = "Restarted after time off";
   } else if (calibrating) {
     snprintf(buf, sizeof(buf), "Calibrating: night %d of %d",
              MIN(e->base_nights + 1, M_MIN_BASE_NIGHTS), M_MIN_BASE_NIGHTS);

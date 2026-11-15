@@ -161,6 +161,63 @@ static void test_away_limits(void) {
   CHECK(e->st.reserve100 == M_START_RESERVE100, "first day off the wrist: frozen at %d", e->st.reserve100);
 }
 
+static void blank(Engine *e, uint32_t to) {     // off the wrist: records with nothing in them
+  for (uint32_t t = e->st.last_min + 1; t <= to; t++) {
+    EngMinute m = { .flags = MF_VALID };
+    engine_minute(e, t, &m);
+  }
+}
+
+static void test_restart(void) {
+  printf("back after days away\n");
+  // Three days off the wrist, then worn from 09:00 (the first heart rate comes at 09:10).
+  Engine *e = fresh(T0, T0 + 8 * DAY);
+  run(e, T0 + 3 * DAY + 20 * 60);
+  const int nights = e->night_count, base = e->base_rmssd10, rhr = e->base_rhr;
+  blank(e, T0 + 6 * DAY + 9 * 60);
+  CHECK((e->st.flags & EF_STALE) && !(e->st.flags & EF_RESTARTED), "frozen while away");
+  run(e, T0 + 6 * DAY + 9 * 60 + 15);
+  CHECK(e->st.flags & EF_RESTARTED, "a day or more away restarts the score");
+  CHECK(e->st.flags & EF_LOW_CONF, "and marks it low confidence");
+  CHECK(abs(e->st.reserve100 - M_START_RESERVE100) <= 50, "restart value %d", e->st.reserve100);
+  CHECK(e->night_count == nights && e->base_rmssd10 == base && e->base_rhr == rhr &&
+        !engine_calibrating(e), "the baseline is kept");
+  run(e, T0 + 6 * DAY + 15 * 60);
+  const int32_t expect = (int32_t)e->st.r0_100 - engine_since_wake(e, CAT_ACT) -
+                         engine_since_wake(e, CAT_STRESS) + engine_since_wake(e, CAT_REST) +
+                         engine_since_wake(e, CAT_SLEEP) - engine_since_wake(e, CAT_AWAY);
+  CHECK(expect == e->st.reserve100, "ledger restarts with the score: %d vs %d", (int)expect,
+        e->st.reserve100);
+  CHECK(e->st.wake_min == 0, "no morning charge until a night is seen");
+  run(e, T0 + 7 * DAY + 8 * 60);
+  CHECK(!(e->st.flags & (EF_RESTARTED | EF_LOW_CONF)), "a full worn night clears it, flags %d",
+        e->st.flags);
+  CHECK(e->st.wake_min != 0, "and gives a morning charge again");
+
+  // Under a day away: the score carries on from where it was.
+  e = fresh(T0, T0 + 8 * DAY);
+  run(e, T0 + 3 * DAY + 20 * 60);
+  blank(e, T0 + 4 * DAY + 15 * 60);
+  const int frozen = e->st.reserve100;
+  run(e, T0 + 4 * DAY + 15 * 60 + 15);
+  CHECK(!(e->st.flags & EF_RESTARTED) && abs(e->st.reserve100 - frozen) <= 50,
+        "19 hours away should resume, not restart: %d vs %d", e->st.reserve100, frozen);
+
+  // The app not opened for longer than the replay limit: the skipped stretch counts as away.
+  e = fresh(T0, T0 + 12 * DAY);
+  run(e, T0 + 3 * DAY + 20 * 60);
+  engine_skip_to(e, T0 + 8 * DAY);
+  run(e, T0 + 8 * DAY + 60);
+  CHECK(e->st.flags & EF_RESTARTED, "a skipped stretch of days restarts too");
+
+  // A new install waiting for its first wear has nothing to restart.
+  e = fresh(T0, T0 + 3 * DAY);
+  blank(e, T0 + 30 * 60);
+  blank(e, T0 + 2 * DAY);
+  run(e, T0 + 2 * DAY + 10 * 60);
+  CHECK(!(e->st.flags & EF_RESTARTED), "first wear is not a restart");
+}
+
 // One hour of the same minute, with a heart-rate reading at once and every tenth minute.
 static void hour_of(Engine *e, int vmc, int steps, int hr) {
   const uint32_t end = e->st.last_min + 60;
@@ -343,6 +400,7 @@ int main(void) {
   test_reason_line();
   test_not_worn();
   test_away_limits();
+  test_restart();
   test_awake_terms();
   test_calibration();
   test_no_hrv();

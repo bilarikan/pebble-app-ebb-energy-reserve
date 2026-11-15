@@ -130,9 +130,10 @@ HRV baseline.
 | Not worn, within 16 hours of the last main wake, and Pebble Health does not call the minute asleep | Score drains at 3 points per hour, the average of an ordinary day | "Not worn: estimating", STALE |
 | Not worn at any other time (a night off the wrist, before the first night, a watch in a drawer) | Score freezes | "Not worn: score frozen", STALE |
 | Worn again after an hour or more off | Score resumes from where it was | "Resumed after a gap", LOW CONF until the next full night |
+| Worn again after a day or more off | Score restarts at 40, the first-run value; the baseline is kept | "Restarted after time off", LOW CONF until the next full night |
 | Worn again after a shorter time off | Score resumes from where it was | Nothing |
 | A night with no usable HRV, once calibrated | Night is recorded without HRV | LOW CONF until the next night with HRV |
-| More than 48 hours since the last update | The stretch is skipped, not replayed | STALE until worn |
+| More than 48 hours since the app last ran | The last 48 hours are replayed; the stretch before them is skipped and counts as time off the wrist, so a day or more of it restarts the score | As for time off of that length |
 
 Sleep on its own does not count as worn: Pebble's sleep detection is motion-based, and a
 watch lying on a table can look asleep. Motion counts tell the two apart: a table gives none
@@ -140,7 +141,8 @@ at all, and a wrist gives some even when still. That matters because heart-rate 
 pause for half an hour or more on a wrist.
 
 The first-run starting point is 40. It is arbitrary, and an offset in it lasts until the
-score next reaches 0 or 100.
+score next reaches 0 or 100. The same value is used after a day or more off the wrist: the
+nights slept without the watch were never seen, so the old score says nothing about now.
 
 ## The reason line
 

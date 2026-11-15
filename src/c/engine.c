@@ -186,6 +186,7 @@ static void on_wake(Engine *e, uint32_t t) {
   s->wake_min = t;
   s->r0_100 = s->reserve100;
   memcpy(s->wake_tot, s->tot, sizeof(s->tot));
+  s->flags &= ~EF_RESTARTED;
   // A full worn night re-anchors the score; without HRV it stays low confidence.
   if (night.rmssd10 || engine_calibrating(e)) {
     s->flags &= ~EF_LOW_CONF;
@@ -201,6 +202,26 @@ static void apply(EngineState *s, int delta, int cat) {
   const int after = clampi(before + delta, 0, 10000);
   s->reserve100 = (uint16_t)after;
   s->tot[cat] += (uint32_t)(after > before ? after - before : before - after);
+}
+
+// After a day or more away the old score says nothing about now: the nights slept off the
+// wrist were never seen. Start again from the first-run value. The baseline is kept.
+static void restart(EngineState *s, uint32_t t) {
+  s->reserve100 = M_START_RESERVE100;
+  s->r0_100 = M_START_RESERVE100;
+  s->wake_min = 0;
+  memcpy(s->wake_tot, s->tot, sizeof(s->tot));
+  memcpy(s->view_tot, s->tot, sizeof(s->tot));
+  s->view_min = t - 1;
+  s->view_reserve100 = M_START_RESERVE100;
+  s->flags |= EF_RESTARTED | EF_LOW_CONF;
+}
+
+static bool ever_scored(const EngineState *s) {
+  for (int c = 0; c < CAT_COUNT; c++) {
+    if (s->tot[c]) return true;
+  }
+  return false;
 }
 
 void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
@@ -246,8 +267,11 @@ void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
   }
   if (s->flags & EF_STALE) {
     // A short gap (heart-rate readings paused on a still wrist) is not worth a warning.
+    const uint32_t gap = t - s->stale_since_min;
     s->flags &= ~(EF_STALE | EF_AWAY_EST);
-    if (t - s->stale_since_min >= M_LOW_CONF_GAP_MIN) s->flags |= EF_LOW_CONF;
+    if (gap >= M_LOW_CONF_GAP_MIN) s->flags |= EF_LOW_CONF;
+    // A fresh install has nothing to drop: it is already at the starting value.
+    if (gap >= M_RESTART_GAP_MIN && ever_scored(s)) restart(s, t);
   }
 
   const bool asleep = (m->flags & MF_ASLEEP) != 0;

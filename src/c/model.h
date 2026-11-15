@@ -53,6 +53,7 @@
 #define M_MOTION_HOLD_MIN     15    // ...unless the watch moved this recently (a table gives none)
 #define M_HR_GAP_MAX_MIN      120   // ...and the last heart rate is no older than this
 #define M_LOW_CONF_GAP_MIN    60    // a frozen stretch shorter than this does not dent confidence
+#define M_RESTART_GAP_MIN     (24 * 60)   // off the wrist this long: the old score is dropped
 #define M_MAIN_SLEEP_MIN      180   // asleep minutes that make a sleep the day's main sleep
 #define M_SLEEP_MERGE_MIN     30    // a wake shorter than this continues the same sleep
 #define M_RHR_PERCENTILE      10    // resting HR = this percentile of heart rate while asleep

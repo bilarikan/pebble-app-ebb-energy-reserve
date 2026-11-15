@@ -13,7 +13,7 @@ retuned after comparing them with Garmin Body Battery readings. Not yet measured
 exercise and a quiet day against a reference, battery cost, and the baseline (it needs three
 nights).
 
-Version 0.2.0 is on the Pebble app store as
+Version 0.2.1 is on the Pebble app store as
 [Ebb: Body Energy Reserve](https://apps.repebble.com/afae45fe97914bc5b35d3711), marked as an
 early release. To publish an update, raise `version` in `package.json`, build, and run
 `pebble publish`; the icons and screenshots used for the listing are in `store/`.
@@ -80,7 +80,7 @@ all day or is catching up after hours away.
 | FR2 | Store HRV windows, resting HR, timestamps for days | Built: 210 windows (about 2.5 days) and 14 nightly summaries |
 | FR3 | Engine recomputes on a fixed interval | Built: every minute while open, and a full catch-up on launch |
 | FR4 | Score, state, curve, updated time, confidence flag | Built |
-| FR5 | Not worn: freeze, mark stale, resume low confidence | Built and tested. One departure: in the waking day, time off the wrist drains at an assumed 3 points per hour instead of freezing (see the first day below) |
+| FR5 | Not worn: freeze, mark stale, resume low confidence | Built and tested. One departure: in the waking day, time off the wrist drains at an assumed 3 points per hour instead of freezing (see the first day below). After a day or more off, the score restarts at the first-run value instead of resuming |
 | FR6 | Onboarding: estimate, not medical advice | Built |
 | FR7 | Reason line | Built |
 | FR8 | Breakdown view | Built |
