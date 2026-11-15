@@ -1,8 +1,11 @@
 {
   "name": "ebb",
   "author": "Bilge Arikan",
+  "license": "Apache-2.0",
   "version": "0.1.0",
-  "keywords": ["pebble-app"],
+  "keywords": [
+    "pebble-app"
+  ],
   "private": true,
   "dependencies": {
     "pebble-clay": "^1.0.4"

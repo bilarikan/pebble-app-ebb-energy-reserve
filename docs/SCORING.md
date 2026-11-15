@@ -149,8 +149,8 @@ the same totals since the morning charge.
 - **Pebble Health can call a still watch asleep.** After two hours on a desk the watch
   reported sleep, and kept reporting it for a while once worn. The engine ignores sleep
   without heart rate, but minutes worn-and-still straight after that are treated as sleep.
-- **Sleep recharge is fitted to one night against one reference** (see the README's first
-  night). The reference gained about 50 points; this model gives 57 for the same night.
+- **Sleep recharge is fitted to one night against one reference** (see the first night in
+  [DEVELOPMENT.md](DEVELOPMENT.md)). The reference gained about 50 points; this model gives 57 for the same night.
 - **Daytime drain has not been compared with anything.** If the score sits high all day while
   a reference falls, the awake terms are the next thing to fit.
 - **The reference uses things this app does not have.** Its method takes age, sex, height,
