@@ -58,7 +58,7 @@ static void test_ordinary_days(void) {
   CHECK(!engine_calibrating(e), "baseline should be established after 5 nights");
   CHECK(e->base_rmssd10 > 350 && e->base_rmssd10 < 490, "baseline rmssd10 %d", e->base_rmssd10);
   CHECK(e->base_rhr >= 50 && e->base_rhr <= 56, "resting hr %d", e->base_rhr);
-  CHECK(hi >= 90, "a good night should recharge to 90+, peak was %d", hi);
+  CHECK(hi >= 75 && hi - lo >= 45, "a good night should recharge 45+ points to 75+, range %d..%d", lo, hi);
   CHECK(lo >= 10 && lo <= 60, "a workout day should bottom out between 10 and 60, got %d", lo);
   CHECK(!(e->st.flags & (EF_STALE | EF_LOW_CONF)), "flags %d", e->st.flags);
 
@@ -174,6 +174,72 @@ static void test_skip(void) {
   }
 }
 
+// Sleep with a raised heart rate refills more slowly than the same sleep at resting level.
+static void test_restless_sleep(void) {
+  printf("raised heart rate asleep\n");
+  int gain[2];
+  for (int k = 0; k < 2; k++) {
+    Engine *e = fresh(T0, T0 + 3 * DAY);
+    run(e, T0 + DAY + 22 * 60);              // one night on record, so resting HR is known
+    engine_set_windows(e, NULL, 0);
+    const int before = e->st.reserve100;
+    for (uint32_t t = e->st.last_min + 1; t <= T0 + DAY + 26 * 60; t++) {
+      EngMinute m = { .vmc = 5, .hr = (uint8_t)(e->base_rhr + (k ? 18 : 2)), .flags = MF_VALID | MF_ASLEEP };
+      engine_minute(e, t, &m);
+    }
+    gain[k] = e->st.reserve100 - before;
+  }
+  printf("  four hours asleep: +%d at resting heart rate, +%d at 18 bpm above\n", gain[0] / 100,
+         gain[1] / 100);
+  CHECK(gain[0] >= 2400 && gain[0] <= 2900, "full-rate sleep gain %d/100", gain[0]);
+  CHECK(gain[1] * 2 < gain[0] && gain[1] > 0, "raised heart rate should more than halve it: %d", gain[1]);
+}
+
+// Heart-rate readings can pause on a wrist. Motion keeps the watch counted as worn; a table
+// (no motion at all) does not.
+static void test_hr_gap(void) {
+  printf("heart-rate gap while worn\n");
+  Engine *e = fresh(T0, T0 + 3 * DAY);
+  run(e, T0 + DAY + 14 * 60);
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + DAY + 15 * 60; t++) {
+    EngMinute m = { .vmc = (uint16_t)(t % 3 ? 0 : 40), .flags = MF_VALID };   // fidgeting, no HR
+    engine_minute(e, t, &m);
+  }
+  CHECK(!(e->st.flags & EF_STALE), "an hour without heart rate but with motion is still worn");
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + DAY + 18 * 60; t++) {
+    EngMinute m = { .vmc = 40, .flags = MF_VALID };
+    engine_minute(e, t, &m);
+  }
+  CHECK(e->st.flags & EF_STALE, "motion alone does not count for ever");
+
+  // A short freeze does not dent confidence; the long one in test_not_worn does.
+  e = fresh(T0, T0 + 3 * DAY);
+  run(e, T0 + DAY + 14 * 60);
+  const uint8_t flags_before = e->st.flags;
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + DAY + 14 * 60 + 50; t++) {
+    EngMinute m = { .flags = MF_VALID };
+    engine_minute(e, t, &m);
+  }
+  CHECK(e->st.flags & EF_STALE, "fifty still minutes without heart rate: frozen");
+  run(e, T0 + DAY + 16 * 60);
+  CHECK(e->st.flags == flags_before, "a short freeze leaves the flags as they were: %d vs %d",
+        e->st.flags, flags_before);
+}
+
+// Rebuilding the state from history must not record last night twice.
+static void test_rebuild_keeps_nights(void) {
+  printf("rebuild from history\n");
+  Engine *e = fresh(T0, T0 + 4 * DAY);
+  run(e, T0 + 2 * DAY + 12 * 60);
+  const int nights = e->night_count;
+  const Night last = e->nights[nights - 1];
+  engine_reset(e, T0 + DAY + 12 * 60);       // as after an update: state gone, nights kept
+  run(e, T0 + 2 * DAY + 12 * 60);
+  CHECK(e->night_count == nights, "nights %d, expected %d", e->night_count, nights);
+  CHECK(e->nights[nights - 1].day == last.day && e->nights[nights - 1].rmssd10 == last.rmssd10,
+        "the night on record should be replaced by the same night");
+}
+
 int main(void) {
   printf("EngineState is %zu bytes (limit 256 per persist key)\n", sizeof(EngineState));
   CHECK(sizeof(EngineState) <= 256, "EngineState too large");
@@ -186,6 +252,9 @@ int main(void) {
   test_no_hrv();
   test_low_hrv_night();
   test_skip();
+  test_restless_sleep();
+  test_hr_gap();
+  test_rebuild_keeps_nights();
   printf(s_failed ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", s_failed);
   return s_failed ? 1 : 0;
 }

@@ -104,7 +104,10 @@ static void tick_handler(struct tm *tick_time, TimeUnits changed) {
 }
 
 static void worker_message(uint16_t type, AppWorkerMessage *message) {
-  if (type == WMSG_WINDOW_DONE) replay_start();
+  if (type == WMSG_WINDOW_DONE) {
+    ui_main_measure_done();
+    replay_start();
+  }
 }
 
 void app_settings_changed(void) {
@@ -132,6 +135,21 @@ void app_onboarding_done(void) {
 }
 
 // ---- Lifecycle -----------------------------------------------------------------------------
+#ifdef ER_DEBUG
+static void debug_timer(void *context) {
+  static int step = -1;
+  if (step < 0) plat_log_diagnostics();
+#ifndef ER_DEMO
+  if (step < 0) step = 0;
+  if (plat_debug_dump(&s_eng, step++)) {
+    app_timer_register(250, debug_timer, NULL);
+    return;
+  }
+#endif
+  ui_main_measure_now();
+}
+#endif
+
 static void init(void) {
   const bool had_state = persist_exists(PK_ENGINE);
   plat_load(&s_eng, &s_set);
@@ -143,6 +161,10 @@ static void init(void) {
 #endif
   }
 
+  const WatchInfoVersion fw = watch_info_get_firmware_version();
+  APP_LOG(APP_LOG_LEVEL_INFO, "Ebb start: PebbleOS %d.%d.%d, %s state, %d nights", (int)fw.major,
+          (int)fw.minor, (int)fw.patch, had_state ? "saved" : "fresh", (int)s_eng.night_count);
+
   comm_init();
   app_worker_message_subscribe(worker_message);
   ui_main_push();
@@ -153,6 +175,10 @@ static void init(void) {
   }
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   replay_start();
+#ifdef ER_DEBUG
+  // A little after launch, so a log session attached by the installer catches it.
+  app_timer_register(12000, debug_timer, NULL);
+#endif
 }
 
 static void deinit(void) {

@@ -33,6 +33,11 @@ static void inbox_received(DictionaryIterator *it, void *context) {
   }
   if (changed) app_settings_changed();
 
+  // Development aid: lets the build machine trigger a measurement over the dev connection.
+  if ((t = dict_find(it, MESSAGE_KEY_MeasureNow)) && t->value->int32) {
+    ui_main_measure_now();
+  }
+
   if ((t = dict_find(it, MESSAGE_KEY_ResetBaseline)) && t->value->int32) {
     app_reset_baseline();
   }

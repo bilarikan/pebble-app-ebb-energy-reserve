@@ -94,5 +94,6 @@ typedef struct __attribute__((packed)) {
   uint32_t updated_utc;
 } ScoreRecord;
 
-// Message type sent worker -> app when a burst finishes.
-#define WMSG_WINDOW_DONE 1
+// Messages between the app and its worker.
+#define WMSG_WINDOW_DONE 1   // worker -> app: a burst finished
+#define WMSG_MEASURE_NOW 2   // app -> worker: start a burst now, whatever the schedule says

@@ -43,3 +43,8 @@ bool plat_worker_hdr(WorkerHdr *out);
 uint16_t plat_windows_24h(void);         // valid HRV windows in the last 24 h, as of the last replay
 
 const BattTrack *plat_batt(void);
+void plat_log_diagnostics(void);          // what the health service gives this app, to the log
+#if defined(ER_DEBUG) && !defined(ER_DEMO)
+// Logs what the score was built from. Call with step 0, 1, 2... until it returns false.
+bool plat_debug_dump(const Engine *e, int step);
+#endif

@@ -127,6 +127,16 @@ static int hrv_mult_pct(Engine *e, uint32_t t, bool asleep) {
   return 100 + (q - 100) * (M_HRV_MULT_MAX_PCT - 100) / 30;
 }
 
+// Sleep recharge as a share of the full rate, from heart rate against resting heart rate.
+// Recovery needs a heart rate near the wearer's own resting level.
+static int sleep_hr_pct(const Engine *e, int hr, bool hr_fresh) {
+  if (!e->base_rhr || !hr_fresh) return 100;
+  const int over = hr - e->base_rhr - M_SLEEP_HR_MARGIN;
+  if (over <= 0) return 100;
+  if (over >= M_SLEEP_HR_SPAN) return M_SLEEP_HR_MIN_PCT;
+  return 100 - over * (100 - M_SLEEP_HR_MIN_PCT) / M_SLEEP_HR_SPAN;
+}
+
 // ---- Curve ---------------------------------------------------------------------------------
 static void curve_put(Engine *e, uint32_t t, bool worn) {
   e->curve[(t / CURVE_SLOT_MIN) % CURVE_SLOTS] = worn ? (uint8_t)engine_score(e) : CURVE_NONE;
@@ -165,7 +175,12 @@ static void on_wake(Engine *e, uint32_t t) {
     .rhr = rhr,
     .wins = (uint8_t)clampi(n, 0, 255),
   };
-  night_upsert(e, &night, e->night_count && s->night_sleep_start == s->sleep_start_min);
+  // The same sleep ending again, or (after the state was rebuilt from history) a night that
+  // is already on record.
+  const bool same_sleep = e->night_count &&
+      (s->night_sleep_start ? s->night_sleep_start == s->sleep_start_min
+                            : e->nights[e->night_count - 1].day == night.day);
+  night_upsert(e, &night, same_sleep);
   s->night_sleep_start = s->sleep_start_min;
 
   s->wake_min = t;
@@ -192,9 +207,15 @@ void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
   const bool hr_fresh = hr_age <= M_HR_HOLD_MIN;
 
   // Worn means a recent heart rate or steps. Sleep alone does not count: the watch's sleep
-  // detection is motion-based and a watch on a table can look asleep.
-  const bool worn = valid && (m->steps > 0 || hr_age <= M_NOT_WORN_MIN);
+  // detection is motion-based and a watch on a table can look asleep. Heart-rate readings
+  // can pause for half an hour or more on a wrist, so recent motion bridges a longer gap:
+  // a watch on a table reports none at all.
+  if (valid && (m->steps > 0 || m->vmc > 0)) s->last_motion_min = t;
+  const bool moved = s->last_motion_min && t - s->last_motion_min <= M_MOTION_HOLD_MIN;
+  const bool worn = valid && (m->steps > 0 || hr_age <= M_NOT_WORN_MIN ||
+                              (moved && hr_age <= M_HR_GAP_MAX_MIN));
   if (!worn) {
+    if (!(s->flags & EF_STALE)) s->stale_since_min = t;
     s->flags |= EF_STALE;
     if (s->flags & EF_ASLEEP) {
       s->flags &= ~EF_ASLEEP;
@@ -205,7 +226,9 @@ void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
     return;
   }
   if (s->flags & EF_STALE) {
-    s->flags = (s->flags & ~EF_STALE) | EF_LOW_CONF;
+    // A short freeze (heart-rate readings paused on a still wrist) is not worth a warning.
+    s->flags &= ~EF_STALE;
+    if (t - s->stale_since_min >= M_LOW_CONF_GAP_MIN) s->flags |= EF_LOW_CONF;
   }
 
   const bool asleep = (m->flags & MF_ASLEEP) != 0;
@@ -238,8 +261,11 @@ void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
   int cat = -1;
 
   if (asleep) {
-    delta = M_G_SLEEP * hrv_mult_pct(e, t, true) / 100;
-    if (m->flags & MF_RESTFUL) delta = delta * M_RESTFUL_PCT / 100;
+    // HRV and heart rate read the same thing, so a slow-down is the worse of the two, not both.
+    int mult = hrv_mult_pct(e, t, true);
+    const int hr_pct = sleep_hr_pct(e, s->last_hr, hr_fresh);
+    if (hr_pct < mult) mult = hr_pct;
+    delta = (M_G_SLEEP * mult * ((m->flags & MF_RESTFUL) ? M_RESTFUL_PCT : 100) + 5000) / 10000;
     cat = CAT_SLEEP;
   } else {
     int inten = hr_fresh ? clampi((s->last_hr - rhr) * 100 / (max_hr - rhr), 0, 100) : -1;
@@ -282,6 +308,7 @@ void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
 void engine_skip_to(Engine *e, uint32_t t) {
   EngineState *s = &e->st;
   if (t <= s->last_min) return;
+  if (!(s->flags & EF_STALE)) s->stale_since_min = s->last_min;
   s->flags = (s->flags & ~EF_ASLEEP) | EF_STALE;
   if (t - s->last_min >= CURVE_SLOTS * CURVE_SLOT_MIN) {
     memset(e->curve, CURVE_NONE, sizeof(e->curve));

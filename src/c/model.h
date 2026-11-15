@@ -4,9 +4,14 @@
 #pragma once
 
 // Recharge (g)
-#define M_G_SLEEP             15    // asleep, HRV at baseline: 9.0 points per hour
+#define M_G_SLEEP             11    // asleep, HRV at baseline: 6.6 points per hour
 #define M_RESTFUL_PCT         120   // multiplier for restful (deep) sleep minutes, percent
 #define M_G_REST              3     // awake, still, heart rate near resting: 1.8 points per hour
+// Sleep with a raised heart rate (alcohol, illness, a late workout, or not really asleep)
+// refills more slowly. Needs a resting heart rate, so it starts after the first night.
+#define M_SLEEP_HR_MARGIN     5     // bpm above resting HR that still counts as full-rate sleep
+#define M_SLEEP_HR_SPAN       15    // bpm beyond the margin over which the rate falls...
+#define M_SLEEP_HR_MIN_PCT    30    // ...to this share of the full rate
 
 // Activity drain (d_a) = BASE + GAIN * intensity^2, intensity as a fraction of HR reserve
 #define M_D_ACT_BASE          6
@@ -34,7 +39,10 @@
 
 // Signal handling
 #define M_HR_HOLD_MIN         15    // a heart-rate reading stands in for this many minutes
-#define M_NOT_WORN_MIN        30    // no heart rate for this long: frozen and marked stale
+#define M_NOT_WORN_MIN        30    // no heart rate for this long: frozen and marked stale...
+#define M_MOTION_HOLD_MIN     15    // ...unless the watch moved this recently (a table gives none)
+#define M_HR_GAP_MAX_MIN      120   // ...and the last heart rate is no older than this
+#define M_LOW_CONF_GAP_MIN    60    // a frozen stretch shorter than this does not dent confidence
 #define M_MAIN_SLEEP_MIN      180   // asleep minutes that make a sleep the day's main sleep
 #define M_SLEEP_MERGE_MIN     30    // a wake shorter than this continues the same sleep
 #define M_RHR_PERCENTILE      10    // resting HR = this percentile of heart rate while asleep
@@ -43,7 +51,7 @@
 // Defaults and limits
 #define M_DEFAULT_RHR         60
 #define M_DEFAULT_MAX_HR      185
-#define M_START_RESERVE100    6000  // first-run starting point before any night is seen
+#define M_START_RESERVE100    4000  // first-run starting point before any night is seen
 #define M_FIRST_LOOKBACK_MIN  (36 * 60)
 #define M_MAX_REPLAY_MIN      (48 * 60)
 #define M_RECENT_LAG_MIN      20    // newest minutes may not be in the history yet

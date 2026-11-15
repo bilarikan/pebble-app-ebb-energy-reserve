@@ -3,6 +3,8 @@
 #
 # ER_DEMO=1 pebble build   -> compiles the synthetic-data adapter so the app can be
 #                             exercised in the emulator, which has no health data.
+# ER_DEBUG=1 pebble build  -> on-wrist debugging: starts an HRV measurement a few seconds
+#                             after every launch, so its log can be read straight after install.
 #
 import os
 import os.path
@@ -32,6 +34,8 @@ def build(ctx):
         ctx.set_group(ctx.env.PLATFORM_NAME)
         if demo:
             ctx.env.append_value('DEFINES', 'ER_DEMO=1')
+        if os.environ.get('ER_DEBUG') == '1':
+            ctx.env.append_value('DEFINES', 'ER_DEBUG=1')
         app_elf = '{}/pebble-app.elf'.format(ctx.env.BUILD_DIR)
         ctx.pbl_build(source=ctx.path.ant_glob('src/c/**/*.c'), target=app_elf, bin_type='app')
 

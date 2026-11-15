@@ -29,7 +29,8 @@
       "ResetBaseline",
       "NightsBlob",
       "NightsCount",
-      "RestoreNights"
+      "RestoreNights",
+      "MeasureNow"
     ],
     "resources": {
       "media": [

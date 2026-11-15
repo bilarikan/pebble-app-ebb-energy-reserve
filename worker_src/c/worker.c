@@ -16,8 +16,12 @@ static const uint8_t NIGHT_INTERVAL_MIN[] = {20, 10, 5};
 static const uint8_t DAY_INTERVAL_MIN[]   = {60, 30, 15};
 static const uint8_t WINDOW_S[]           = {60, 60, 120};
 
-#define SETTLE_S        10     // discard intervals while the optical signal settles
-#define ABORT_S         30     // no interval at all by now: not worn, release the sensor
+// The firmware allows 20 s for the sensor to spin up before a good reading, and the driver
+// then reports real beat-to-beat intervals, a few per algorithm result. The window is
+// therefore timed from the first interval, not from the request. On the wrist the first
+// ten or so intervals were still unusable (wild values, runs of repeats), hence the settle.
+#define ABORT_S         45     // no interval at all by now: not worn, release the sensor
+#define SETTLE_S        15     // discard intervals for this long after the first one
 #define STILL_TICKS     3      // minutes without a step before a daytime burst may start
 #define MAX_BACKOFF     4      // interval multiplier after bursts that saw no signal
 #define PPI_MIN_MS      300    // 200 bpm
@@ -27,12 +31,16 @@ static const uint8_t WINDOW_S[]           = {60, 60, 120};
 typedef struct {
   bool     active;
   bool     asleep;
-  bool     seen;          // any interval delivered, good or bad
+  bool     seen;          // an interval was delivered, good or bad
   uint8_t  window_s;
+  uint8_t  off_wrist;     // "not on a wrist" reports from the sensor (interval of 0)
   time_t   start;
+  time_t   first;         // when the first interval arrived
   uint16_t prev;          // previous accepted interval, 0 after an artifact
+  uint16_t last_raw;      // previous interval as delivered, for spotting repeats
   uint16_t pairs;         // accepted successive differences
-  uint16_t artifacts;
+  uint16_t artifacts;     // intervals out of range or jumping more than 20%
+  uint16_t repeats;       // intervals identical to the one before
   uint32_t sumsq;         // sum of squared successive differences, ms^2
   int32_t  steps_start;
 } Burst;
@@ -44,6 +52,30 @@ static int32_t s_prev_steps = -1;
 static uint8_t s_still;
 static uint8_t s_backoff = 1;
 static HrvWin s_page[RING_PER_KEY];   // one ring key, reused for read-modify-write
+
+// Raw intervals to the log, eight to a line, for checking the sensor's output by hand.
+// Only in ER_DEBUG builds.
+#ifdef ER_DEBUG
+#define RAW_PER_LINE 8
+static uint16_t s_raw[RAW_PER_LINE];
+static uint8_t s_raw_n;
+
+static void raw_flush(void) {
+  if (!s_raw_n) return;
+  for (uint8_t i = s_raw_n; i < RAW_PER_LINE; i++) s_raw[i] = 0;
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "ppi %d %d %d %d %d %d %d %d", s_raw[0], s_raw[1], s_raw[2], s_raw[3],
+          s_raw[4], s_raw[5], s_raw[6], s_raw[7]);
+  s_raw_n = 0;
+}
+
+static void raw_add(uint16_t ppi) {
+  s_raw[s_raw_n++] = ppi;
+  if (s_raw_n == RAW_PER_LINE) raw_flush();
+}
+#else
+static void raw_flush(void) {}
+static void raw_add(uint16_t ppi) {}
+#endif
 
 static void save_hdr(void) {
   persist_write_data(PK_WHDR, &s_hdr, sizeof(s_hdr));
@@ -86,13 +118,13 @@ static void burst_finish(void) {
   s_hdr.sensor_s_today = (uint16_t)MIN(65535u, s_hdr.sensor_s_today + on_s);
   if (s_hdr.bursts_today < 255) s_hdr.bursts_today++;
   s_hdr.last_pairs = (uint8_t)MIN(255, s_b.pairs);
-  s_hdr.last_artifacts = (uint8_t)MIN(255, s_b.artifacts);
+  s_hdr.last_artifacts = (uint8_t)MIN(255, s_b.artifacts + s_b.repeats);
 
   // A window counts only if enough clean beat pairs arrived, few intervals were rejected,
   // and (awake) the wearer did not start walking part-way through.
-  const uint16_t total = s_b.pairs + s_b.artifacts;
-  bool valid = s_b.pairs >= s_b.window_s / 2 &&
-               s_b.artifacts * 100 <= total * MAX_ARTIFACT_PCT;
+  const uint16_t bad = s_b.artifacts + s_b.repeats;
+  const uint16_t total = s_b.pairs + bad;
+  bool valid = s_b.pairs >= s_b.window_s / 2 && bad * 100 <= total * MAX_ARTIFACT_PCT;
   if (valid && !s_b.asleep &&
       health_service_sum_today(HealthMetricStepCount) != s_b.steps_start) {
     valid = false;
@@ -124,6 +156,14 @@ static void burst_finish(void) {
   s_backoff = s_b.seen ? 1 : MIN(MAX_BACKOFF, s_backoff * 2);
   save_hdr();
 
+  // The watch truncates long log lines, so this one is terse:
+  // seconds on, seconds to first interval, off-wrist reports, pairs kept, intervals rejected.
+  raw_flush();
+  APP_LOG(APP_LOG_LEVEL_INFO, "burst end: on %d first %d offw %d ok %d rej %d rep %d rmssd %d.%d %s",
+          (int)on_s, s_b.seen ? (int)(s_b.first - s_b.start) : -1, (int)s_b.off_wrist, (int)s_b.pairs,
+          (int)s_b.artifacts, (int)s_b.repeats, (int)(rmssd10 / 10), (int)(rmssd10 % 10),
+          valid ? "kept" : "dropped");
+
   AppWorkerMessage msg = { .data0 = (uint16_t)rmssd10, .data1 = s_b.pairs, .data2 = s_b.artifacts };
   app_worker_send_message(WMSG_WINDOW_DONE, &msg);
 }
@@ -131,9 +171,13 @@ static void burst_finish(void) {
 static void burst_timer(void *context) {
   s_timer = NULL;
   if (!s_b.active) return;
-  const uint32_t elapsed = (uint32_t)(time(NULL) - s_b.start);
+  if (!s_b.seen) {
+    burst_finish();   // nothing by ABORT_S
+    return;
+  }
+  const uint32_t elapsed = (uint32_t)(time(NULL) - s_b.first);
   const uint32_t total = SETTLE_S + s_b.window_s;
-  if (!s_b.seen || elapsed >= total) {
+  if (elapsed >= total) {
     burst_finish();
     return;
   }
@@ -150,6 +194,9 @@ static void burst_start(bool asleep, uint8_t intensity, int32_t steps) {
   if (!health_service_set_hrv_sample_period(1)) {
     s_hdr.status = (s_hdr.status & ~WS_HRV_OK) | WS_HRV_REFUSED;
     save_hdr();
+    APP_LOG(APP_LOG_LEVEL_WARNING, "HRV sampling refused by the firmware");
+    AppWorkerMessage none = { 0 };
+    app_worker_send_message(WMSG_WINDOW_DONE, &none);   // so a waiting app stops waiting
     return;
   }
   s_hdr.status = (s_hdr.status & ~WS_HRV_REFUSED) | WS_HRV_OK;
@@ -163,14 +210,34 @@ static void burst_start(bool asleep, uint8_t intensity, int32_t steps) {
     .steps_start = steps,
   };
   s_timer = app_timer_register(ABORT_S * 1000, burst_timer, NULL);
+  APP_LOG(APP_LOG_LEVEL_INFO, "burst start: %s, %d s window", asleep ? "asleep" : "awake",
+          (int)s_b.window_s);
 }
 
 static void health_handler(HealthEventType event, void *context) {
   if (event != HealthEventHRVUpdate || !s_b.active) return;
   const uint16_t ppi = health_service_peek_hrv_ppi_ms();
-  if (ppi == 0) return;
-  s_b.seen = true;
-  if (time(NULL) - s_b.start < SETTLE_S) return;
+  if (ppi == 0) {
+    // The sensor reports "not on a wrist" as an interval of 0.
+    if (s_b.off_wrist < 255) s_b.off_wrist++;
+    return;
+  }
+  raw_add(ppi);
+  const time_t now = time(NULL);
+  if (!s_b.seen) {
+    s_b.seen = true;
+    s_b.first = now;
+  }
+  if (now - s_b.first < SETTLE_S) return;
+
+  // The sensor's algorithm re-reports an interval when it has nothing new (seen on the wrist
+  // as runs of identical values while the signal was poor). A repeat carries no information
+  // about variability, and counting it as a clean pair would pull RMSSD towards zero.
+  if (ppi == s_b.last_raw) {
+    s_b.repeats++;
+    return;
+  }
+  s_b.last_raw = ppi;
 
   if (ppi < PPI_MIN_MS || ppi > PPI_MAX_MS) {
     s_b.artifacts++;
@@ -229,6 +296,16 @@ static void tick_handler(struct tm *tm, TimeUnits changed) {
   burst_start(asleep, set.intensity, steps);
 }
 
+static void app_message(uint16_t type, AppWorkerMessage *message) {
+  if (type != WMSG_MEASURE_NOW || s_b.active) return;
+  Settings set = { .intensity = INTENSITY_BALANCED };
+  persist_read_data(PK_SETTINGS, &set, sizeof(set));
+  if (set.intensity > INTENSITY_HIGH) set.intensity = INTENSITY_BALANCED;
+  const HealthActivityMask act = health_service_peek_current_activities();
+  burst_start((act & (HealthActivitySleep | HealthActivityRestfulSleep)) != 0, set.intensity,
+              health_service_sum_today(HealthMetricStepCount));
+}
+
 int main(void) {
   if (persist_read_data(PK_WHDR, &s_hdr, sizeof(s_hdr)) != (int)sizeof(s_hdr) ||
       s_hdr.version != WHDR_VERSION || s_hdr.head >= RING_CAP || s_hdr.count > RING_CAP) {
@@ -238,8 +315,11 @@ int main(void) {
   // If the worker was killed mid-burst the periods may still be set: clear them first.
   sensor_release();
 
-  health_service_events_subscribe(health_handler, NULL);
+  const bool subscribed = health_service_events_subscribe(health_handler, NULL);
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
+  app_worker_message_subscribe(app_message);
+  APP_LOG(APP_LOG_LEVEL_INFO, "sampler started, health events %s, %d windows stored",
+          subscribed ? "on" : "UNAVAILABLE", (int)s_hdr.count);
   worker_event_loop();
 
   burst_finish();

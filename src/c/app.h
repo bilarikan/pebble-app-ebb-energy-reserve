@@ -21,6 +21,8 @@ const char *band_name(int band);
 // Windows
 void ui_main_push(void);
 void ui_main_refresh(void);
+void ui_main_measure_now(void);           // ask the sampler for an HRV window right away
+void ui_main_measure_done(void);          // a requested HRV measurement finished
 void ui_detail_push(void);
 void ui_detail_refresh(void);
 void ui_onboard_push(void);

@@ -41,7 +41,7 @@ void demo_minute(uint32_t t, int16_t tz_min, EngMinute *out) {
     every_minute = true;
   } else if (lm < HM(12, 0)) {                 // desk, tense between 10 and 11
     const bool tense = lm >= HM(10, 0) && lm < HM(11, 0);
-    hr = (tense ? 92 : 73) + jitter(t, 4);
+    hr = (tense ? 92 : 68) + jitter(t, 4);
     vmc = 120;
   } else if (lm < HM(12, 45)) {                // lunch walk
     steps = 92 + jitter(t, 8);
@@ -49,7 +49,7 @@ void demo_minute(uint32_t t, int16_t tz_min, EngMinute *out) {
     vmc = 3200;
     every_minute = true;
   } else if (lm < HM(17, 30)) {                // desk
-    hr = 71 + jitter(t, 4);
+    hr = 67 + jitter(t, 4);
     vmc = 110;
   } else if (lm < HM(18, 20)) {                // workout
     steps = 150 + jitter(t, 10);

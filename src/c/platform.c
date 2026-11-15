@@ -10,6 +10,8 @@ static HrvWin *s_wins;
 static uint16_t s_win_n, s_win_24h;
 static HealthMinuteData *s_buf;
 static AppWorkerResult s_launch = APP_WORKER_RESULT_NOT_RUNNING;
+static uint16_t s_stat_min, s_stat_rec, s_stat_hr, s_stat_asleep;   // last replay, for the log
+static uint32_t s_replay_from;
 static bool s_launch_tried;
 static BattTrack s_batt;
 
@@ -132,6 +134,8 @@ void plat_sampler_start(void) {
   if (!firmware_has_hrv()) return;
   s_launch = app_worker_launch();
   s_launch_tried = true;
+  APP_LOG(APP_LOG_LEVEL_INFO, "sampler launch result %d, running %d", (int)s_launch,
+          (int)app_worker_is_running());
 }
 
 bool plat_worker_hdr(WorkerHdr *out) {
@@ -161,6 +165,49 @@ uint16_t plat_windows_24h(void) {
   return s_win_24h;
 }
 
+// ---- Diagnostics ---------------------------------------------------------------------------
+// One-off report of what the health service will give this app. Log only.
+#ifndef ER_DEMO
+static void probe_history(const char *label, time_t from, time_t to) {
+  HealthMinuteData *buf = malloc(sizeof(HealthMinuteData) * 60);
+  if (!buf) return;
+  from -= from % 60;   // whole minutes, as the replay asks for
+  to -= to % 60;
+  time_t ts = from, te = to;
+  const uint32_t n = health_service_get_minute_history(buf, 60, &ts, &te);
+  int valid = 0, with_hr = 0, steps = 0, last_hr = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    if (!buf[i].is_invalid) valid++;
+    if (buf[i].heart_rate_bpm) { with_hr++; last_hr = buf[i].heart_rate_bpm; }
+    steps += buf[i].steps;
+  }
+  APP_LOG(APP_LOG_LEVEL_INFO, "probe %s: n %d at %+d s, valid %d, hr %d (last %d), steps %d",
+          label, (int)n, (int)(ts - from), valid, with_hr, last_hr, steps);
+  free(buf);
+}
+#endif
+
+void plat_log_diagnostics(void) {
+#ifndef ER_DEMO
+  const time_t now = time(NULL);
+  APP_LOG(APP_LOG_LEVEL_INFO, "access: steps today %d, HR 1h %d, sleep today %d (1=available)",
+          (int)health_service_metric_accessible(HealthMetricStepCount, time_start_of_today(), now),
+          (int)health_service_metric_accessible(HealthMetricHeartRateBPM, now - 3600, now),
+          (int)health_service_metric_accessible(HealthMetricSleepSeconds, time_start_of_today(), now));
+  APP_LOG(APP_LOG_LEVEL_INFO, "now: HR %d (raw %d), steps today %d, sleep today %d s, activities %d",
+          (int)health_service_peek_current_value(HealthMetricHeartRateBPM),
+          (int)health_service_peek_current_value(HealthMetricHeartRateRawBPM),
+          (int)health_service_sum_today(HealthMetricStepCount),
+          (int)health_service_sum_today(HealthMetricSleepSeconds),
+          (int)health_service_peek_current_activities());
+  probe_history("last 20 min", now - 20 * 60, now);
+  probe_history("20-80 min ago", now - 80 * 60, now - 20 * 60);
+  probe_history("3-4 h ago", now - 4 * 3600, now - 3 * 3600);
+  probe_history("8-9 h ago", now - 9 * 3600, now - 8 * 3600);
+  probe_history("24-25 h ago", now - 25 * 3600, now - 24 * 3600);
+#endif
+}
+
 // ---- Replay --------------------------------------------------------------------------------
 #ifndef ER_DEMO
 typedef struct { uint32_t a, b; } Span;   // minutes [a, b)
@@ -170,6 +217,153 @@ typedef struct { uint32_t a, b; } Span;   // minutes [a, b)
 static Span s_sleep[MAX_SLEEP_SPANS], s_rest[MAX_REST_SPANS];
 static uint8_t s_sleep_n, s_rest_n;
 
+static bool activity_cb(HealthActivity activity, time_t start, time_t end, void *context);
+static bool in_spans(const Span *spans, uint8_t n, uint32_t t);
+#endif
+
+// ---- Debug dump ----------------------------------------------------------------------------
+// ER_DEBUG only: writes what the score was built from to the log, a few lines per call so
+// the log link keeps up. Reads only. Call with step 0, 1, 2... until it returns false.
+#if defined(ER_DEBUG) && !defined(ER_DEMO)
+#define DUMP_HOURS 34
+
+static int hhmm(uint32_t t_min) {
+  const time_t t = (time_t)t_min * 60;
+  const struct tm *lt = localtime(&t);
+  return lt->tm_mday * 10000 + lt->tm_hour * 100 + lt->tm_min;
+}
+
+static void dump_hour(uint32_t from_min) {
+  HealthMinuteData *buf = malloc(sizeof(HealthMinuteData) * 60);
+  if (!buf) return;
+  time_t ts = (time_t)from_min * 60, te = ts + 3600;
+  const uint32_t n = health_service_get_minute_history(buf, 60, &ts, &te);
+  const uint32_t first = (uint32_t)(ts / 60);
+  int valid = 0, sl = 0, rf = 0, steps = 0, hrn = 0, hrsum = 0, hrmin = 255, hrmax = 0, vmc = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    const uint32_t t = first + i;
+    if (t < from_min || t >= from_min + 60) continue;
+    if (buf[i].is_invalid) continue;
+    valid++;
+    const bool rest = in_spans(s_rest, s_rest_n, t);
+    if (rest) rf++;
+    if (rest || in_spans(s_sleep, s_sleep_n, t)) sl++;
+    steps += buf[i].steps;
+    vmc += buf[i].vmc;
+    const int hr = buf[i].heart_rate_bpm;
+    if (hr) {
+      hrn++;
+      hrsum += hr;
+      if (hr < hrmin) hrmin = hr;
+      if (hr > hrmax) hrmax = hr;
+    }
+  }
+  APP_LOG(APP_LOG_LEVEL_INFO, "H %06d v%d sl%d rf%d st%d vm%d hr n%d a%d lo%d hi%d", hhmm(from_min),
+          valid, sl, rf, steps, vmc / 60, hrn, hrn ? hrsum / hrn : 0, hrn ? hrmin : 0, hrmax);
+  free(buf);
+}
+
+bool plat_debug_dump(const Engine *e, int step) {
+  static HrvWin *wins;
+  static uint16_t win_n;
+  const uint32_t now = plat_now_min();
+  const EngineState *s = &e->st;
+  char line[96];
+
+  if (step == 0) {
+    APP_LOG(APP_LOG_LEVEL_INFO, "D st r%d r0 %d fl%d slp%d ss%06d wk%06d last%06d hr%d", (int)s->reserve100,
+            (int)s->r0_100, (int)s->flags, (int)s->sleep_min, hhmm(s->sleep_start_min),
+            hhmm(s->wake_min), hhmm(s->last_min), (int)s->last_hr);
+    APP_LOG(APP_LOG_LEVEL_INFO, "D tot a%d s%d r%d sl%d", (int)s->tot[0], (int)s->tot[1],
+            (int)s->tot[2], (int)s->tot[3]);
+    APP_LOG(APP_LOG_LEVEL_INFO, "D wtot a%d s%d r%d sl%d", (int)s->wake_tot[0], (int)s->wake_tot[1],
+            (int)s->wake_tot[2], (int)s->wake_tot[3]);
+    APP_LOG(APP_LOG_LEVEL_INFO, "D base rmssd%d rhr%d n%d nights%d", (int)e->base_rmssd10,
+            (int)e->base_rhr, (int)e->base_nights, (int)e->night_count);
+    for (int i = 0; i < e->night_count; i++) {
+      const Night *n = &e->nights[i];
+      APP_LOG(APP_LOG_LEVEL_INFO, "D night%d day%d rmssd%d sleep%d rhr%d wins%d", i, (int)n->day,
+              (int)n->rmssd10, (int)n->sleep_min, (int)n->rhr, (int)n->wins);
+    }
+    WorkerHdr h;
+    if (plat_worker_hdr(&h)) {
+      APP_LOG(APP_LOG_LEVEL_INFO, "D whdr st%d cnt%d b%d ok%d sens%d yd%d lp%d la%d", (int)h.status,
+              (int)h.count, (int)h.bursts_today, (int)h.ok_today, (int)h.sensor_s_today,
+              (int)h.sensor_s_yday, (int)h.last_pairs, (int)h.last_artifacts);
+    }
+    APP_LOG(APP_LOG_LEVEL_INFO, "D batt pct%d rate%d valid%d span%d", (int)s_batt.pct,
+            (int)s_batt.rate10, (int)s_batt.rate10_valid, (int)s_batt.span_h);
+    return true;
+  }
+
+  if (step == 1) {   // sleep sessions as Pebble Health reports them
+    s_sleep_n = s_rest_n = 0;
+    health_service_activities_iterate(HealthActivitySleep | HealthActivityRestfulSleep,
+                                      (time_t)(now - DUMP_HOURS * 60) * 60, (time_t)now * 60,
+                                      HealthIterationDirectionFuture, activity_cb, NULL);
+    for (int i = 0; i < s_sleep_n; i++) {
+      APP_LOG(APP_LOG_LEVEL_INFO, "D sleep %06d-%06d", hhmm(s_sleep[i].a), hhmm(s_sleep[i].b));
+    }
+    int rest_min = 0;
+    for (int i = 0; i < s_rest_n; i++) rest_min += (int)(s_rest[i].b - s_rest[i].a);
+    APP_LOG(APP_LOG_LEVEL_INFO, "D restful spans%d min%d", (int)s_rest_n, rest_min);
+    return true;
+  }
+
+  if (step == 2) {   // the score curve, oldest first
+    const uint32_t slot_now = now / CURVE_SLOT_MIN;
+    for (int row = 0; row < 4; row++) {
+      int len = 0;
+      for (int i = 0; i < 24; i++) {
+        const uint32_t slot = slot_now - (CURVE_SLOTS - 1) + (uint32_t)(row * 24 + i);
+        len += snprintf(line + len, sizeof(line) - (size_t)len, "%d ", (int)e->curve[slot % CURVE_SLOTS]);
+      }
+      APP_LOG(APP_LOG_LEVEL_INFO, "C %06d %s",
+              hhmm((slot_now - (CURVE_SLOTS - 1) + (uint32_t)(row * 24)) * CURVE_SLOT_MIN), line);
+    }
+    return true;
+  }
+
+  if (step == 3) {   // HRV windows
+    wins = malloc(sizeof(HrvWin) * RING_CAP);
+    win_n = 0;
+    if (!wins) return true;
+    HrvWin page[RING_PER_KEY];
+    for (int k = 0; k < RING_KEYS; k++) {
+      const int bytes = persist_read_data(PK_RING0 + k, page, sizeof(page));
+      for (int i = 0; i < bytes / (int)sizeof(HrvWin); i++) {
+        if (page[i].rmssd10 && win_n < RING_CAP) wins[win_n++] = page[i];
+      }
+    }
+    APP_LOG(APP_LOG_LEVEL_INFO, "D wins %d", (int)win_n);
+    return true;
+  }
+
+  const int win_steps = wins ? (win_n + 5) / 6 : 0;
+  if (step < 4 + win_steps) {
+    int len = 0;
+    for (int i = (step - 4) * 6; i < (step - 3) * 6 && i < win_n; i++) {
+      len += snprintf(line + len, sizeof(line) - (size_t)len, "%06d%c%d ",
+                      hhmm(wins[i].t & WIN_T_MASK), (wins[i].t & WIN_ASLEEP) ? 's' : 'a',
+                      (int)wins[i].rmssd10);
+    }
+    APP_LOG(APP_LOG_LEVEL_INFO, "W %s", line);
+    return true;
+  }
+  if (wins) { free(wins); wins = NULL; }
+
+  const int hour = step - 4 - win_steps;
+  if (hour < DUMP_HOURS) {
+    const uint32_t base = now - now % 60 - (uint32_t)(DUMP_HOURS - 1 - hour) * 60;
+    dump_hour(base - 60);
+    return true;
+  }
+  APP_LOG(APP_LOG_LEVEL_INFO, "D end");
+  return false;
+}
+#endif
+
+#ifndef ER_DEMO
 static bool activity_cb(HealthActivity activity, time_t start, time_t end, void *context) {
   const Span span = { (uint32_t)(start / 60), (uint32_t)((end + 59) / 60) };
   if (activity == HealthActivitySleep) {
@@ -209,6 +403,7 @@ void plat_replay_begin(Engine *e) {
 
   // The clock went backwards (time zone travel does not do this; a reset can).
   if (e->st.last_min > now) e->st.last_min = now;
+  s_replay_from = e->st.last_min + 1;
 
 #ifdef ER_DEMO
   const uint32_t from = e->st.last_min - 1440;   // a day earlier, for the 24 h window count
@@ -229,6 +424,7 @@ void plat_replay_begin(Engine *e) {
   s_buf = malloc(sizeof(HealthMinuteData) * CHUNK_MIN);
 #endif
 
+  s_stat_min = s_stat_rec = s_stat_hr = s_stat_asleep = 0;
   s_win_24h = 0;
   for (uint16_t i = 0; i < s_win_n; i++) {
     if ((s_wins[i].t & WIN_T_MASK) + 1440 >= now) s_win_24h++;
@@ -255,11 +451,14 @@ bool plat_replay_step(Engine *e) {
   const uint32_t n = health_service_get_minute_history(s_buf, CHUNK_MIN, &ts, &te);
   const uint32_t first = n ? (uint32_t)(ts / 60) : end;
 
-  // The newest minutes may not have reached the history yet: a missing minute counts as a
-  // gap only once it is older than the lag, otherwise it is left for the next pass.
+  // Minutes before the first record returned are gaps for certain: the history is written in
+  // order, so data after them means they will never arrive. (The call answers a range that
+  // has no data with the next records it does have, which is how `first` can lie ahead.)
+  // With nothing returned at all, the newest minutes may simply not have been written yet:
+  // those count as gaps only once they are older than the lag.
   uint32_t t = start;
   for (; t < first && t < end; t++) {
-    if (t + M_RECENT_LAG_MIN >= now) return false;
+    if (!n && t + M_RECENT_LAG_MIN >= now) return false;
     engine_minute(e, t, NULL);
   }
   for (uint32_t i = 0; i < n; i++) {
@@ -276,6 +475,9 @@ bool plat_replay_step(Engine *e) {
                          (in_spans(s_rest, s_rest_n, rt) ? (MF_ASLEEP | MF_RESTFUL) : 0)),
     };
     engine_minute(e, rt, &m);
+    s_stat_rec++;
+    if (m.hr) s_stat_hr++;
+    if (m.flags & MF_ASLEEP) s_stat_asleep++;
     t = rt + 1;
   }
   for (; t < end; t++) {
@@ -287,6 +489,12 @@ bool plat_replay_step(Engine *e) {
 }
 
 void plat_replay_end(Engine *e) {
+#ifndef ER_DEMO
+  s_stat_min = (uint16_t)(e->st.last_min + 1 - s_replay_from);
+  APP_LOG(APP_LOG_LEVEL_INFO, "replay: min %d rec %d hr %d asleep %d wins %d nights %d -> %d flags %d",
+          (int)s_stat_min, (int)s_stat_rec, (int)s_stat_hr, (int)s_stat_asleep, (int)s_win_n,
+          (int)e->night_count, engine_score(e), (int)e->st.flags);
+#endif
   engine_set_windows(e, NULL, 0);
   free(s_wins);
   s_wins = NULL;

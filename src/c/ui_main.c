@@ -7,6 +7,7 @@
 
 static Window *s_window;
 static Layer *s_canvas;
+static bool s_measuring;     // the owner asked for an HRV measurement and it has not finished
 
 static GColor band_color(int band) {
   switch (band) {
@@ -138,7 +139,9 @@ static void canvas_update(Layer *layer, GContext *ctx) {
   // trustworthy; otherwise the axis labels.
   const SamplerState sampler = plat_sampler_state();
   const char *notice = NULL;
-  if (stale) {
+  if (s_measuring) {
+    notice = "Measuring HRV: keep still";
+  } else if (stale) {
     notice = "Not worn: score frozen";
   } else if (sampler == SAMPLER_OLD_FIRMWARE) {
     notice = "HRV needs PebbleOS 4.32+";
@@ -189,8 +192,23 @@ static void select_click(ClickRecognizerRef recognizer, void *context) {
   ui_detail_push();
 }
 
+// Long press: ask the sampler for an HRV window now instead of waiting for its schedule.
+void ui_main_measure_now(void) {
+  if (s_measuring || plat_sampler_state() != SAMPLER_OK) return;
+  AppWorkerMessage msg = { 0 };
+  app_worker_send_message(WMSG_MEASURE_NOW, &msg);
+  s_measuring = true;
+  vibes_short_pulse();
+  if (s_canvas) layer_mark_dirty(s_canvas);
+}
+
+static void select_long_click(ClickRecognizerRef recognizer, void *context) {
+  ui_main_measure_now();
+}
+
 static void click_config(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click);
+  window_long_click_subscribe(BUTTON_ID_SELECT, 700, select_long_click, NULL);
 }
 
 static void window_load(Window *window) {
@@ -216,6 +234,13 @@ void ui_main_push(void) {
     .unload = window_unload,
   });
   window_stack_push(s_window, true);
+}
+
+void ui_main_measure_done(void) {
+  if (!s_measuring) return;
+  s_measuring = false;
+  vibes_double_pulse();
+  ui_main_refresh();
 }
 
 void ui_main_refresh(void) {

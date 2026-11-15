@@ -3,4 +3,5 @@ node_modules/
 .lock-waf*
 .DS_Store
 tests/test_engine
+*.dSYM/
 *.pbw
