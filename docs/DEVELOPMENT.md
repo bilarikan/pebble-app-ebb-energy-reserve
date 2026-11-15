@@ -2,7 +2,9 @@
 
 Working detail for anyone changing the code, human or coding agent: where the project stands,
 how it is put together, and what the first days on a wrist showed. The user-facing summary
-is the [README](../README.md); the scoring model is in [SCORING.md](SCORING.md).
+is the [README](../README.md) and the [user guide](USER-GUIDE.md); the scoring model is in
+[SCORING.md](SCORING.md). The user guide describes the screens, messages and settings, so
+update it when any of those change.
 
 ## Status
 

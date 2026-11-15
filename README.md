@@ -25,7 +25,8 @@ Emulator screenshots. The first three use synthetic demo data.
   releases the sensor.
 - **Phone settings:** sampling intensity, HRV units, maximum heart rate, reset baseline.
 
-The scoring model is written up in [docs/SCORING.md](docs/SCORING.md).
+How to use it and read the screens is in the [user guide](docs/USER-GUIDE.md). The scoring
+model is written up in [docs/SCORING.md](docs/SCORING.md).
 
 ## Requirements
 
