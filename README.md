@@ -6,6 +6,9 @@ calls.
 
 It is an estimate, not medical advice.
 
+Install it from the Pebble app store:
+[Ebb: Body Energy Reserve](https://apps.repebble.com/afae45fe97914bc5b35d3711).
+
 | Main | With a reason line | Breakdown | Not worn |
 | --- | --- | --- | --- |
 | ![Main screen](docs/screenshots/main.png) | ![Reason line](docs/screenshots/main-reason.png) | ![Breakdown](docs/screenshots/breakdown.png) | ![Not worn](docs/screenshots/not-worn.png) |

@@ -12,6 +12,11 @@ watch's own history. The sleep recharge was retuned after comparing it with a Ga
 Battery reading. Not yet measured: a full day's drain against a reference, battery cost, and
 the baseline (it needs three nights).
 
+Version 0.1.0 is on the Pebble app store as
+[Ebb: Body Energy Reserve](https://apps.repebble.com/afae45fe97914bc5b35d3711), marked as an
+early release. To publish an update, raise `version` in `package.json`, build, and run
+`pebble publish`; the icons and screenshots used for the listing are in `store/`.
+
 "Ebb" is a working name. The PRD leaves naming open and rules out "Body Battery" and
 "Energy Reserve"; changing it is one line (`displayName` in `package.json`).
 
