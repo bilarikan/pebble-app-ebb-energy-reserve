@@ -263,6 +263,39 @@ static void dump_hour(uint32_t from_min) {
   free(buf);
 }
 
+// Half an hour of the per-minute record, six minutes to a line, each minute as hex:
+// steps (2), heart rate (2), motion counts capped at 4095 (3), flags (1: valid, asleep, restful).
+#define DUMP_MIN_HOURS 26
+static void dump_minutes(uint32_t from_min) {
+  HealthMinuteData *buf = malloc(sizeof(HealthMinuteData) * 30);
+  if (!buf) return;
+  time_t ts = (time_t)from_min * 60, te = ts + 30 * 60;
+  const uint32_t n = health_service_get_minute_history(buf, 30, &ts, &te);
+  const uint32_t first = (uint32_t)(ts / 60);
+  char line[64];
+  for (int row = 0; row < 5; row++) {
+    int len = 0;
+    for (int i = 0; i < 6; i++) {
+      const uint32_t t = from_min + (uint32_t)(row * 6 + i);
+      int steps = 0, hr = 0, vmc = 0, flags = 0;
+      if (t >= first && t - first < n && !buf[t - first].is_invalid) {
+        const HealthMinuteData *d = &buf[t - first];
+        steps = d->steps;
+        hr = d->heart_rate_bpm;
+        vmc = d->vmc > 4095 ? 4095 : d->vmc;
+        flags = MF_VALID;
+        const bool rest = in_spans(s_rest, s_rest_n, t);
+        if (rest) flags |= MF_RESTFUL;
+        if (rest || in_spans(s_sleep, s_sleep_n, t)) flags |= MF_ASLEEP;
+      }
+      len += snprintf(line + len, sizeof(line) - (size_t)len, "%02x%02x%03x%x", steps, hr, vmc, flags);
+    }
+    APP_LOG(APP_LOG_LEVEL_INFO, "M %06d %d %s", hhmm(from_min + (uint32_t)(row * 6)),
+            (int)(from_min + (uint32_t)(row * 6)), line);
+  }
+  free(buf);
+}
+
 bool plat_debug_dump(const Engine *e, int step) {
   static HrvWin *wins;
   static uint16_t win_n;
@@ -274,10 +307,10 @@ bool plat_debug_dump(const Engine *e, int step) {
     APP_LOG(APP_LOG_LEVEL_INFO, "D st r%d r0 %d fl%d slp%d ss%06d wk%06d last%06d hr%d", (int)s->reserve100,
             (int)s->r0_100, (int)s->flags, (int)s->sleep_min, hhmm(s->sleep_start_min),
             hhmm(s->wake_min), hhmm(s->last_min), (int)s->last_hr);
-    APP_LOG(APP_LOG_LEVEL_INFO, "D tot a%d s%d r%d sl%d", (int)s->tot[0], (int)s->tot[1],
-            (int)s->tot[2], (int)s->tot[3]);
-    APP_LOG(APP_LOG_LEVEL_INFO, "D wtot a%d s%d r%d sl%d", (int)s->wake_tot[0], (int)s->wake_tot[1],
-            (int)s->wake_tot[2], (int)s->wake_tot[3]);
+    APP_LOG(APP_LOG_LEVEL_INFO, "D tot a%d s%d r%d sl%d aw%d", (int)s->tot[0], (int)s->tot[1],
+            (int)s->tot[2], (int)s->tot[3], (int)s->tot[4]);
+    APP_LOG(APP_LOG_LEVEL_INFO, "D wtot a%d s%d r%d sl%d aw%d", (int)s->wake_tot[0],
+            (int)s->wake_tot[1], (int)s->wake_tot[2], (int)s->wake_tot[3], (int)s->wake_tot[4]);
     APP_LOG(APP_LOG_LEVEL_INFO, "D base rmssd%d rhr%d n%d nights%d", (int)e->base_rmssd10,
             (int)e->base_rhr, (int)e->base_nights, (int)e->night_count);
     for (int i = 0; i < e->night_count; i++) {
@@ -356,6 +389,12 @@ bool plat_debug_dump(const Engine *e, int step) {
   if (hour < DUMP_HOURS) {
     const uint32_t base = now - now % 60 - (uint32_t)(DUMP_HOURS - 1 - hour) * 60;
     dump_hour(base - 60);
+    return true;
+  }
+  const int half = hour - DUMP_HOURS;
+  if (half < DUMP_MIN_HOURS * 2) {
+    const uint32_t base = now - now % 30 - (uint32_t)(DUMP_MIN_HOURS * 2 - half) * 30;
+    dump_minutes(base);
     return true;
   }
   APP_LOG(APP_LOG_LEVEL_INFO, "D end");

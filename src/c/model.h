@@ -6,7 +6,7 @@
 // Recharge (g)
 #define M_G_SLEEP             11    // asleep, HRV at baseline: 6.6 points per hour
 #define M_RESTFUL_PCT         120   // multiplier for restful (deep) sleep minutes, percent
-#define M_G_REST              3     // awake, still, heart rate near resting: 1.8 points per hour
+#define M_G_REST              3     // awake, still, heart rate at resting: 1.8 points per hour
 // Sleep with a raised heart rate (alcohol, illness, a late workout, or not really asleep)
 // refills more slowly. Needs a resting heart rate, so it starts after the first night.
 #define M_SLEEP_HR_MARGIN     5     // bpm above resting HR that still counts as full-rate sleep
@@ -14,18 +14,28 @@
 #define M_SLEEP_HR_MIN_PCT    30    // ...to this share of the full rate
 
 // Activity drain (d_a) = BASE + GAIN * intensity^2, intensity as a fraction of HR reserve
-#define M_D_ACT_BASE          6
+#define M_D_ACT_BASE          9     // walking at an easy heart rate: 5.4 points per hour
 #define M_D_ACT_GAIN          70
 #define M_STEPS_MOVING        20    // steps in a minute that count as moving
 #define M_INTEN_ACTIVE_PCT    35    // HR reserve share that counts as exercise without steps...
 #define M_VMC_MOVING          400   // ...when motion counts are at least this (cycling, weights)
 #define M_COOLDOWN_MIN        10    // after moving, elevated HR is recovery, not stress
+// On your feet without walking anywhere (housework, cooking, standing between short walks),
+// and the minutes straight after moving. Needs no heart rate.
+#define M_D_LIGHT             8     // 4.8 points per hour
+#define M_VMC_LIGHT           600   // motion counts in a minute that count as on your feet
 
-// Stress drain (d_s) = BASE + GAIN * stress level, counted only at low motion
-#define M_D_STRESS_BASE       4
-#define M_D_STRESS_GAIN       14
-#define M_STRESS_HR_MARGIN    15    // bpm above resting HR before heart rate reads as stress
-#define M_STRESS_HR_SPAN      35    // bpm over which HR stress goes from 0 to 1
+// Stress drain (d_s) = BASE + GAIN * stress level, counted only at low motion.
+// Resting heart rate is measured asleep, so sitting awake is normally some way above it:
+// being up costs a little, strain costs more.
+#define M_D_STRESS_BASE       3
+#define M_D_STRESS_GAIN       15
+#define M_STRESS_HR_MARGIN    6     // bpm above resting HR that still counts as at rest
+#define M_STRESS_HR_SPAN      34    // bpm over which HR stress goes from 0 to 1
+
+// Not worn during the waking day: assume an ordinary day rather than no cost at all.
+#define M_D_AWAY              5     // 3 points per hour
+#define M_AWAY_DAY_MIN        (16 * 60)   // only this long after the last main wake
 #define M_STRESS_HRV_Q_PCT    80    // awake HRV below this share of the awake reference is stress
 #define M_STRESS_HRV_SPAN     40    // percentage points over which HRV stress goes from 0 to 1
 

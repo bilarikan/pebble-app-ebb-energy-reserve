@@ -34,8 +34,8 @@ static int round_points(int32_t v100) {
 // "-8 activity, -3 stress, +5 rest" for what changed since the owner last looked.
 static void build_reason(char *buf, size_t size) {
   const Engine *e = app_engine();
-  static const char *const names[CAT_COUNT] = { "activity", "stress", "rest", "sleep" };
-  static const int sign[CAT_COUNT] = { -1, -1, 1, 1 };
+  static const char *const names[CAT_COUNT] = { "activity", "stress", "rest", "sleep", "off wrist" };
+  static const int sign[CAT_COUNT] = { -1, -1, 1, 1, -1 };
   size_t len = 0;
   buf[0] = '\0';
   for (int c = 0; c < CAT_COUNT; c++) {
@@ -142,7 +142,7 @@ static void canvas_update(Layer *layer, GContext *ctx) {
   if (s_measuring) {
     notice = "Measuring HRV: keep still";
   } else if (stale) {
-    notice = "Not worn: score frozen";
+    notice = (e->st.flags & EF_AWAY_EST) ? "Not worn: estimating" : "Not worn: score frozen";
   } else if (sampler == SAMPLER_OLD_FIRMWARE) {
     notice = "HRV needs PebbleOS 4.32+";
   } else if (sampler == SAMPLER_NOT_RUNNING) {

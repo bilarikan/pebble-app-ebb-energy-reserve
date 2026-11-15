@@ -34,35 +34,35 @@ void demo_minute(uint32_t t, int16_t tz_min, EngMinute *out) {
     steps = (hash(t) % 3 == 0) ? 25 + (int)(hash(t + 7) % 20) : 4;
     hr = 80 + jitter(t, 6);
     vmc = 900;
-  } else if (lm < HM(8, 15)) {                 // walk to work
+  } else if (lm < HM(7, 55)) {                 // walk to work
     steps = 100 + jitter(t, 8);
-    hr = 104 + jitter(t, 5);
+    hr = 98 + jitter(t, 5);
     vmc = 3500;
     every_minute = true;
   } else if (lm < HM(12, 0)) {                 // desk, tense between 10 and 11
     const bool tense = lm >= HM(10, 0) && lm < HM(11, 0);
-    hr = (tense ? 92 : 68) + jitter(t, 4);
+    hr = (tense ? 84 : 59) + jitter(t, 4);
     vmc = 120;
-  } else if (lm < HM(12, 45)) {                // lunch walk
+  } else if (lm < HM(12, 30)) {                // lunch walk
     steps = 92 + jitter(t, 8);
-    hr = 100 + jitter(t, 5);
+    hr = 96 + jitter(t, 5);
     vmc = 3200;
     every_minute = true;
   } else if (lm < HM(17, 30)) {                // desk
-    hr = 67 + jitter(t, 4);
+    hr = 59 + jitter(t, 4);
     vmc = 110;
-  } else if (lm < HM(18, 20)) {                // workout
+  } else if (lm < HM(18, 10)) {                // workout
     steps = 150 + jitter(t, 10);
-    hr = 156 + jitter(t, 6);
+    hr = 148 + jitter(t, 6);
     vmc = 6000;
     every_minute = true;
-  } else if (lm < HM(19, 0)) {                 // cool down
+  } else if (lm < HM(18, 40)) {                // cool down
     steps = 30 + jitter(t, 6);
-    hr = 96 - (lm - HM(18, 20)) / 3 + jitter(t, 3);
+    hr = 96 - (lm - HM(18, 10)) / 3 + jitter(t, 3);
     vmc = 1200;
     every_minute = true;
   } else {                                     // quiet evening
-    hr = 63 + jitter(t, 3);
+    hr = 55 + jitter(t, 3);
     vmc = 60;
   }
 

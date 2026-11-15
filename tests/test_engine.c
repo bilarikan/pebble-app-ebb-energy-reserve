@@ -66,7 +66,7 @@ static void test_ordinary_days(void) {
   run(e, T0 + 5 * DAY + 15 * 60);
   const int32_t expect = (int32_t)e->st.r0_100 - engine_since_wake(e, CAT_ACT) -
                          engine_since_wake(e, CAT_STRESS) + engine_since_wake(e, CAT_REST) +
-                         engine_since_wake(e, CAT_SLEEP);
+                         engine_since_wake(e, CAT_SLEEP) - engine_since_wake(e, CAT_AWAY);
   CHECK(expect == e->st.reserve100, "ledger %d vs reserve %d", (int)expect, e->st.reserve100);
   CHECK(engine_since_wake(e, CAT_ACT) > 0 && engine_since_wake(e, CAT_STRESS) > 0,
         "activity and stress should both have drained by 15:00");
@@ -80,9 +80,9 @@ static void test_reason_line(void) {
   run(e, T0 + 2 * DAY + 17 * 60 + 30);      // just before the workout
   engine_mark_viewed(e);
   const int before = e->st.reserve100;
-  run(e, T0 + 2 * DAY + 18 * 60 + 20);      // after it
+  run(e, T0 + 2 * DAY + 18 * 60 + 10);      // after it
   const int32_t act = engine_since_view(e, CAT_ACT);
-  CHECK(act >= 1000, "a 50 minute hard workout should cost 10+ points, cost %d/100", (int)act);
+  CHECK(act >= 1000, "a 40 minute hard workout should cost 10+ points, cost %d/100", (int)act);
   CHECK(engine_since_view(e, CAT_SLEEP) == 0, "no sleep during a workout");
   CHECK(before - e->st.reserve100 == act, "drop %d vs activity %d", before - e->st.reserve100,
         (int)act);
@@ -99,8 +99,13 @@ static void test_not_worn(void) {
     engine_minute(e, t, &m);
   }
   CHECK(e->st.flags & EF_STALE, "should be stale after four hours without heart rate");
-  // The hold period runs out after M_NOT_WORN_MIN; before that the wearer is treated as resting.
-  CHECK(abs(e->st.reserve100 - before) <= 150, "should freeze, moved %d/100",
+  // In the waking day the time off the wrist is charged at the assumed rate, once the hold
+  // period (M_NOT_WORN_MIN) runs out.
+  CHECK(e->st.flags & EF_AWAY_EST, "off the wrist in the day is estimated, not frozen");
+  const int32_t away = engine_since_wake(e, CAT_AWAY);
+  CHECK(away >= 900 && away <= 1200, "four hours off the wrist should cost about 3 points an hour, cost %d/100",
+        (int)away);
+  CHECK(abs(before - e->st.reserve100 - away) <= 150, "and little else: moved %d/100",
         e->st.reserve100 - before);
   const int frozen = e->st.reserve100;
   for (uint32_t t = e->st.last_min + 1; t <= T0 + 2 * DAY + 19 * 60; t++) {
@@ -115,6 +120,95 @@ static void test_not_worn(void) {
   CHECK(e->st.flags & EF_LOW_CONF, "worn again: low confidence until the next full night");
   run(e, T0 + 3 * DAY + 8 * 60);
   CHECK(!(e->st.flags & EF_LOW_CONF), "a full worn night restores confidence");
+}
+
+static void test_away_limits(void) {
+  printf("off the wrist: what is not estimated\n");
+  // Taken off in the evening and left off overnight: estimated only until 16 hours after
+  // the morning wake (06:40), then frozen.
+  Engine *e = fresh(T0, T0 + 4 * DAY);
+  run(e, T0 + 2 * DAY + 21 * 60);
+  int before = e->st.reserve100;
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + 3 * DAY + 6 * 60; t++) {
+    EngMinute m = { .flags = MF_VALID };
+    engine_minute(e, t, &m);
+  }
+  CHECK(before - e->st.reserve100 <= 500 && before - e->st.reserve100 >= 0,
+        "a night off the wrist should cost a few points at most, cost %d/100", before - e->st.reserve100);
+  CHECK((e->st.flags & EF_STALE) && !(e->st.flags & EF_AWAY_EST), "frozen by morning, flags %d",
+        e->st.flags);
+
+  // Minutes Pebble Health calls asleep are never estimated: a watch on a table can look asleep.
+  e = fresh(T0, T0 + 4 * DAY);
+  run(e, T0 + 2 * DAY + 13 * 60);
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + 2 * DAY + 13 * 60 + 45; t++) {
+    EngMinute m = { .flags = MF_VALID };
+    engine_minute(e, t, &m);
+  }
+  before = e->st.reserve100;
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + 2 * DAY + 17 * 60; t++) {
+    EngMinute m = { .flags = MF_VALID | MF_ASLEEP };
+    engine_minute(e, t, &m);
+  }
+  CHECK(e->st.reserve100 == before, "asleep and not worn: frozen, moved %d/100", e->st.reserve100 - before);
+
+  // Before any night has been seen there is no waking day to assume.
+  e = fresh(T0 + 12 * 60, T0 + DAY);
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + 16 * 60; t++) {
+    EngMinute m = { .flags = MF_VALID };
+    engine_minute(e, t, &m);
+  }
+  CHECK(e->st.reserve100 == M_START_RESERVE100, "first day off the wrist: frozen at %d", e->st.reserve100);
+}
+
+// One hour of the same minute, with a heart-rate reading at once and every tenth minute.
+static void hour_of(Engine *e, int vmc, int steps, int hr) {
+  const uint32_t end = e->st.last_min + 60;
+  for (uint32_t t = e->st.last_min + 1; t <= end; t++) {
+    EngMinute m = { .flags = MF_VALID, .vmc = (uint16_t)vmc, .steps = (uint8_t)steps,
+                    .hr = (uint8_t)((t % 10 == 0 || t + 60 == end + 1) ? hr : 0) };
+    engine_minute(e, t, &m);
+  }
+}
+
+static void test_awake_terms(void) {
+  printf("awake terms\n");
+  Engine *e = fresh(T0, T0 + 4 * DAY);
+  run(e, T0 + 2 * DAY + 9 * 60);             // at the desk, long after the walk in
+  const int rhr = e->base_rhr;
+
+  // Housework: plenty of motion, hardly any steps. Charged as light activity whatever the
+  // heart rate, and without needing one.
+  engine_mark_viewed(e);
+  hour_of(e, 1500, 3, rhr + 14);
+  int32_t act = engine_since_view(e, CAT_ACT);
+  CHECK(act >= 420 && act <= 540, "an hour on the feet should cost about 5 points, cost %d/100", (int)act);
+  CHECK(engine_since_view(e, CAT_STRESS) == 0, "movement is not stress");
+  engine_mark_viewed(e);
+  hour_of(e, 1500, 0, 0);
+  act = engine_since_view(e, CAT_ACT);
+  CHECK(act >= 420 && act <= 540, "and the same with no heart rate at all, cost %d/100", (int)act);
+
+  // Sitting still, heart rate a normal way above its sleeping level: a slow drain.
+  engine_mark_viewed(e);
+  hour_of(e, 40, 0, rhr + 12);
+  const int32_t sitting = engine_since_view(e, CAT_STRESS);
+  CHECK(sitting >= 200 && sitting <= 400 && engine_since_view(e, CAT_REST) == 0,
+        "an hour sitting should cost 2 to 4 points, cost %d/100", (int)sitting);
+
+  // Strained: more.
+  engine_mark_viewed(e);
+  hour_of(e, 40, 0, rhr + 35);
+  const int32_t strained = engine_since_view(e, CAT_STRESS);
+  CHECK(strained > 2 * sitting && strained <= 1100, "strain should cost more: %d vs %d", (int)strained,
+        (int)sitting);
+
+  // Properly at rest: a slow recharge.
+  engine_mark_viewed(e);
+  hour_of(e, 40, 0, rhr + 3);
+  const int32_t rest = engine_since_view(e, CAT_REST);
+  CHECK(rest >= 100 && rest <= 250 && engine_since_view(e, CAT_STRESS) == 0,
+        "an hour at resting heart rate should give back about 2 points, gave %d/100", (int)rest);
 }
 
 static void test_calibration(void) {
@@ -248,6 +342,8 @@ int main(void) {
   test_ordinary_days();
   test_reason_line();
   test_not_worn();
+  test_away_limits();
+  test_awake_terms();
   test_calibration();
   test_no_hrv();
   test_low_hrv_night();

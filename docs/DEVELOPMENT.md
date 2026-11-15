@@ -6,13 +6,14 @@ is the [README](../README.md); the scoring model is in [SCORING.md](SCORING.md).
 
 ## Status
 
-One night recorded on a Pebble Time 2 (PebbleOS 4.44.4). The scoring engine is unit-tested,
-the background worker sampled HRV through a night, and the app scored that night from the
-watch's own history. The sleep recharge was retuned after comparing it with a Garmin Body
-Battery reading. Not yet measured: a full day's drain against a reference, battery cost, and
-the baseline (it needs three nights).
+One night and one day recorded on a Pebble Time 2 (PebbleOS 4.44.4). The scoring engine is
+unit-tested, the background worker sampled HRV through a night, and the app scored that night
+and day from the watch's own history. The sleep recharge and then the daytime drain were
+retuned after comparing them with Garmin Body Battery readings. Not yet measured: hard
+exercise and a quiet day against a reference, battery cost, and the baseline (it needs three
+nights).
 
-Version 0.1.0 is on the Pebble app store as
+Version 0.2.0 is on the Pebble app store as
 [Ebb: Body Energy Reserve](https://apps.repebble.com/afae45fe97914bc5b35d3711), marked as an
 early release. To publish an update, raise `version` in `package.json`, build, and run
 `pebble publish`; the icons and screenshots used for the listing are in `store/`.
@@ -34,8 +35,10 @@ demo's saved state would otherwise carry over.
 
 For debugging on the wrist, `ER_DEBUG=1 pebble build` makes the app log what the score was
 built from twelve seconds after every launch (state, nights, sleep sessions, the 24-hour
-curve, every stored HRV window, and an hourly summary of the health history), then start an
-HRV measurement and log the raw beat intervals. Read it with `--logs` straight after
+curve, every stored HRV window, an hourly summary of the health history, and the last 26
+hours minute by minute), then start an HRV measurement and log the raw beat intervals. The
+minute lines (`M`) are enough to replay a day through `engine.c` on a computer, which is how
+the daytime rates were fitted. Read it with `--logs` straight after
 installing; set `PYTHONUNBUFFERED=1` when sending the tool's output to a file. In any build,
 a long press on Select asks the sampler for a measurement now instead of waiting for its
 schedule.
@@ -77,7 +80,7 @@ all day or is catching up after hours away.
 | FR2 | Store HRV windows, resting HR, timestamps for days | Built: 210 windows (about 2.5 days) and 14 nightly summaries |
 | FR3 | Engine recomputes on a fixed interval | Built: every minute while open, and a full catch-up on launch |
 | FR4 | Score, state, curve, updated time, confidence flag | Built |
-| FR5 | Not worn: freeze, mark stale, resume low confidence | Built and tested |
+| FR5 | Not worn: freeze, mark stale, resume low confidence | Built and tested. One departure: in the waking day, time off the wrist drains at an assumed 3 points per hour instead of freezing (see the first day below) |
 | FR6 | Onboarding: estimate, not medical advice | Built |
 | FR7 | Reason line | Built |
 | FR8 | Breakdown view | Built |
@@ -148,9 +151,57 @@ What changed, and why:
 One night against one reference, itself new to the wrist, is thin evidence. The remaining
 difference is mostly the two devices' starting points.
 
+## First day (15 Nov 2026)
+
+The day after that night. Both watches worn until 12:09, both off until about 16:30. The
+wearer judged the Garmin figure the closer one to how they felt at all three readings.
+
+| | Garmin Body Battery | Ebb 0.1.0 as worn | Ebb 0.2.0 (same record replayed on the watch) |
+| --- | --- | --- | --- |
+| 07:00, waking | about 80 | 97 (100 on the build worn overnight) | 80 |
+| 09:27, after chatting and housework | 67 | 95 | 72 |
+| 12:09, after breakfast out, a walk and window shopping | 49 | 85 | 54 |
+| 16:30, after 4 hours 20 minutes off the wrist | 34 | 84 | 41 |
+
+The minute record showed where the drain went missing. Of the 301 minutes between waking and
+12:09:
+
+| What the first version did | Minutes | Why |
+| --- | --- | --- |
+| Charged nothing | 94 | Within 10 minutes of walking: meant to stop a raised heart rate being read as stress |
+| Charged nothing | 58 | No heart-rate reading in the last 15 minutes. Readings come about every 10 minutes when still, and paused once for 74 minutes |
+| Activity | 87 | 20 or more steps in the minute |
+| Stress or rest | 62 | Still, with a reading. Heart rate was 75 to 94 against a resting 62; anything up to 77 counted as recharging |
+
+Most of the uncharged minutes had plenty of motion and few steps: housework, and standing
+between short walks.
+
+What changed, and why:
+
+- **Light movement is a term of its own**, 4.8 points per hour, for minutes with 600 or more
+  motion counts and for the 10 minutes after walking. It needs no heart rate.
+- **Walking costs more at the low end:** the base rate went from 3.6 to 5.4 points per hour.
+  The intensity part is unchanged.
+- **Sitting awake is no longer a recharge.** The resting band went from 15 bpm above resting
+  heart rate to 6, and the stress drain now starts there at 1.8 points per hour, reaching
+  10.8 at 40 bpm above. Resting heart rate is measured asleep, so the old band took in
+  ordinary sitting.
+- **Time off the wrist in the waking day drains at 3 points per hour** instead of freezing,
+  shown as "Not worn: estimating" and listed as "off wrist". The reference lost 15 points
+  over the same stretch. It applies for 16 hours after the last main wake and never to a
+  minute Pebble Health calls asleep, so a night off the wrist still freezes.
+
+The same change re-scored the evening before: 27 at bedtime (reference about 30), 51 at
+01:30 (about 50) and 80 on waking (about 80). Part of that agreement is luck, because the
+first-run starting point of 40 is arbitrary.
+
+This is one morning of light activity against one reference. It says nothing yet about hard
+exercise, a seated day or an evening.
+
 ## Not done, or not known
 
-- **Daytime drain has not been compared with anything.** Only the overnight gain has.
+- **Daytime drain is fitted to one morning.** Hard exercise, a seated day and an evening have
+  not been compared with anything.
 - **The HRV baseline has one night of three.** Until then HRV does not steer the rates.
 - **Battery:** the app reports sensor-on minutes (measured) and whole-watch drain per day
   (measured between launches). It does not convert sensor minutes into a percentage, because

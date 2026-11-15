@@ -195,6 +195,14 @@ static void on_wake(Engine *e, uint32_t t) {
 }
 
 // ---- One minute ----------------------------------------------------------------------------
+// Ledgers record what was actually applied after clamping, so they always add up.
+static void apply(EngineState *s, int delta, int cat) {
+  const int before = s->reserve100;
+  const int after = clampi(before + delta, 0, 10000);
+  s->reserve100 = (uint16_t)after;
+  s->tot[cat] += (uint32_t)(after > before ? after - before : before - after);
+}
+
 void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
   EngineState *s = &e->st;
   const bool valid = m && (m->flags & MF_VALID);
@@ -221,13 +229,24 @@ void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
       s->flags &= ~EF_ASLEEP;
       if (s->sleep_min >= M_MAIN_SLEEP_MIN) on_wake(e, t);
     }
+    // Off the wrist in the waking day the wearer is still spending energy, so assume an
+    // ordinary day. Anything else is unknowable (a night off the wrist, a watch left in a
+    // drawer), and the score stays where it was.
+    const bool est = valid && !(m->flags & MF_ASLEEP) && s->wake_min &&
+                     t - s->wake_min < M_AWAY_DAY_MIN;
+    if (est) {
+      apply(s, -M_D_AWAY, CAT_AWAY);
+      s->flags |= EF_AWAY_EST;
+    } else {
+      s->flags &= ~EF_AWAY_EST;
+    }
     curve_put(e, t, false);
     s->last_min = t;
     return;
   }
   if (s->flags & EF_STALE) {
-    // A short freeze (heart-rate readings paused on a still wrist) is not worth a warning.
-    s->flags &= ~EF_STALE;
+    // A short gap (heart-rate readings paused on a still wrist) is not worth a warning.
+    s->flags &= ~(EF_STALE | EF_AWAY_EST);
     if (t - s->stale_since_min >= M_LOW_CONF_GAP_MIN) s->flags |= EF_LOW_CONF;
   }
 
@@ -276,8 +295,12 @@ void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
       delta = -(M_D_ACT_BASE + M_D_ACT_GAIN * inten * inten / 10000);
       cat = CAT_ACT;
       s->last_move_min = t;
-    } else if (s->last_move_min && t - s->last_move_min <= M_COOLDOWN_MIN) {
-      // Heart rate coming down after exertion: neither stress nor rest.
+    } else if (m->vmc >= M_VMC_LIGHT ||
+               (s->last_move_min && t - s->last_move_min <= M_COOLDOWN_MIN)) {
+      // On the feet without going anywhere, or heart rate coming down after moving: a
+      // flat light cost, and heart rate is not read as stress.
+      delta = -M_D_LIGHT;
+      cat = CAT_ACT;
     } else if (hr_fresh) {
       const int s_hr =
           clampi((s->last_hr - rhr - M_STRESS_HR_MARGIN) * 100 / M_STRESS_HR_SPAN, 0, 100);
@@ -295,11 +318,7 @@ void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
     }
   }
 
-  // Ledgers record what was actually applied after clamping, so they always add up.
-  const int before = s->reserve100;
-  const int after = clampi(before + delta, 0, 10000);
-  s->reserve100 = (uint16_t)after;
-  if (cat >= 0) s->tot[cat] += (uint32_t)(after > before ? after - before : before - after);
+  if (cat >= 0) apply(s, delta, cat);
 
   curve_put(e, t, true);
   s->last_min = t;
@@ -309,7 +328,7 @@ void engine_skip_to(Engine *e, uint32_t t) {
   EngineState *s = &e->st;
   if (t <= s->last_min) return;
   if (!(s->flags & EF_STALE)) s->stale_since_min = s->last_min;
-  s->flags = (s->flags & ~EF_ASLEEP) | EF_STALE;
+  s->flags = (s->flags & ~(EF_ASLEEP | EF_AWAY_EST)) | EF_STALE;
   if (t - s->last_min >= CURVE_SLOTS * CURVE_SLOT_MIN) {
     memset(e->curve, CURVE_NONE, sizeof(e->curve));
   } else {

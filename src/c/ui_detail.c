@@ -61,6 +61,10 @@ static void build_rows(void) {
   fmt_points(r->value, sizeof(r->value), engine_since_wake(e, CAT_STRESS), -1);
   r = add_row(0, "Rest");
   fmt_points(r->value, sizeof(r->value), engine_since_wake(e, CAT_REST), 1);
+  if (engine_since_wake(e, CAT_AWAY) >= 50) {
+    r = add_row(0, "Off wrist (estimate)");
+    fmt_points(r->value, sizeof(r->value), engine_since_wake(e, CAT_AWAY), -1);
+  }
   if (engine_since_wake(e, CAT_SLEEP) >= 50) {
     r = add_row(0, "Sleep since waking");
     fmt_points(r->value, sizeof(r->value), engine_since_wake(e, CAT_SLEEP), 1);

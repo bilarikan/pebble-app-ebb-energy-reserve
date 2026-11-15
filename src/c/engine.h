@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include "shared.h"
 
-#define ENGINE_VERSION   4
+#define ENGINE_VERSION   5
 #define CURVE_SLOTS      96      // 24 h at 15 minutes
 #define CURVE_SLOT_MIN   15
 #define CURVE_NONE       255     // slot with no data (not worn)
@@ -20,9 +20,10 @@
 
 // EngineState.flags
 enum {
-  EF_STALE    = 1 << 0,   // not worn: frozen
+  EF_STALE    = 1 << 0,   // not worn
   EF_LOW_CONF = 1 << 1,   // resumed after a long gap, cleared by the next full night
   EF_ASLEEP   = 1 << 2,
+  EF_AWAY_EST = 1 << 3,   // not worn, and draining at the assumed daytime rate (else frozen)
 };
 
 // EngMinute.flags
@@ -49,7 +50,7 @@ typedef struct __attribute__((packed)) {
 } Night;
 
 // Ledger categories. Totals only ever grow; views are differences between snapshots.
-enum { CAT_ACT = 0, CAT_STRESS, CAT_REST, CAT_SLEEP, CAT_COUNT };
+enum { CAT_ACT = 0, CAT_STRESS, CAT_REST, CAT_SLEEP, CAT_AWAY, CAT_COUNT };
 
 typedef struct __attribute__((packed)) {
   uint8_t  version;
