@@ -8,14 +8,14 @@ update it when any of those change.
 
 ## Status
 
-One night and one day recorded on a Pebble Time 2 (PebbleOS 4.44.4). The scoring engine is
-unit-tested, the background worker sampled HRV through a night, and the app scored that night
-and day from the watch's own history. The sleep recharge and then the daytime drain were
-retuned after comparing them with Garmin Body Battery readings. Not yet measured: hard
-exercise and a quiet day against a reference, battery cost, and the baseline (it needs three
-nights).
+Three nights and two days recorded on a Pebble Time 2 (PebbleOS 4.44.4). The scoring engine
+is unit-tested, the background worker sampled HRV through each night, and the app scored
+them from the watch's own history. The sleep recharge, then the daytime drain, then the shape
+of the model (rates that scale with the reserve) were changed after comparing the score with
+Garmin Body Battery readings and with how the wearer felt. Not yet recorded: a quiet seated
+day, a long calm night, and battery cost.
 
-Version 0.2.1 is on the Pebble app store as
+Version 0.3.0 is on the Pebble app store as
 [Ebb: Body Energy Reserve](https://apps.repebble.com/afae45fe97914bc5b35d3711), marked as an
 early release. To publish an update, raise `version` in `package.json`, build, and run
 `pebble publish`; the icons and screenshots used for the listing are in `store/`.
@@ -37,10 +37,12 @@ demo's saved state would otherwise carry over.
 
 For debugging on the wrist, `ER_DEBUG=1 pebble build` makes the app log what the score was
 built from twelve seconds after every launch (state, nights, sleep sessions, the 24-hour
-curve, every stored HRV window, an hourly summary of the health history, and the last 26
+curve, every stored HRV window, an hourly summary of the health history, and the last 46
 hours minute by minute), then start an HRV measurement and log the raw beat intervals. The
 minute lines (`M`) are enough to replay a day through `engine.c` on a computer, which is how
-the daytime rates were fitted. Read it with `--logs` straight after
+the rates were fitted. One trap: the sleep flag in those lines is only right for the most
+recent night, because the watch's sleep-session query returned only the latest sessions.
+Reinstall the normal build afterwards; the debug build is not the store build. Read it with `--logs` straight after
 installing; set `PYTHONUNBUFFERED=1` when sending the tool's output to a file. In any build,
 a long press on Select asks the sampler for a measurement now instead of waiting for its
 schedule.
@@ -200,10 +202,71 @@ first-run starting point of 40 is arbitrary.
 This is one morning of light activity against one reference. It says nothing yet about hard
 exercise, a seated day or an evening.
 
+## Second day (16 Nov 2026)
+
+Version 0.2.1, worn through the night, a morning workout (a 1 km run and calisthenics), a
+commute and a desk day with the watch on and off, then an active evening. A broken night
+followed: asleep 20:58 to 01:03, awake for an hour, asleep again to 05:21.
+
+| | Garmin Body Battery | Ebb 0.2.1 as worn | How the wearer felt | Ebb 0.3.0 (same record replayed) |
+| --- | --- | --- | --- | --- |
+| 15 Nov 21:13, bedtime | 30 | 32 | | 31 |
+| 05:00, waking | 51 | 73 | Between the two | 68 |
+| 06:55, after the workout | 47 | 60 | Both fell by a similar amount | 53 |
+| 09:00, at the office | 33 | 45 | | 40 |
+| 12:15 | 13 | 28 | 28, or even 45, nearer than 13 | 28 |
+| 16:50 | 36 after reaching 0 | 11 | | 20 |
+| 18:45 | 30 | 0 | Not 0 | 16 |
+| 17 Nov 05:21, waking | | 37 | | 62 |
+
+The reference's jump from 0 to the 30s is not understood. Its readings just after being put
+back on were about 30, 34, 30 and 36 on four occasions, so it may restart after time off the
+wrist. That is a guess.
+
+Why the score reached 0: at the 0.2.1 rates the day cost about 84 points (61 activity, 10
+stress, 13 estimated off the wrist) and the night gave back 42. With fixed rates nothing
+stops that: 0 every evening, about 40 every morning.
+
+What was tried on the record, and what happened when the last day was repeated for a week:
+
+| Change | 16 Nov 12:15 | 16 Nov 18:45 | Repeating the day |
+| --- | --- | --- | --- |
+| None (0.2.1) | 26 | 0 | 0 in the evening, 41 in the morning |
+| Add 20 whenever it reaches 0 | 26 | 17 | Two jumps a day |
+| Drains cut to 65% | 59 | 40 | Back at 0 in the evening by the third day |
+| Drains slowed below 40, recharge slowed above 60 | 28 | 11 | 0 in the evening, 43 in the morning |
+| Rates in proportion to the reserve (chosen) | 28 | 16 | 11 in the evening, 60 in the morning |
+
+What changed, and why:
+
+- **Every rate now scales with the reserve:** drains by `R / 50`, recharge by
+  `(100 - R) / 50`. No rate was retuned. It fitted both recorded days as they stood: the first
+  day replays as 70, 49 and 37 against the reference's 67, 49 and 34, which the wearer had
+  judged the closer figures that day.
+- **A night woken in the middle is one night.** The hour awake was longer than the 30
+  minutes that continue a sleep, so the night was recorded twice and the baseline counted
+  four nights where there had been three. A later sleep now joins the night if it starts
+  within 3 hours of the wake and lasts an hour or more, there is one record per day, and
+  duplicates left by 0.2.1 are removed when that day is replayed.
+
+The replay behind these figures rebuilt the sleep times for the night of 15 to 16 Nov from
+the motion record, because the dump did not carry them; it gives 69 at 05:00 under 0.2.1
+where the watch showed 73.
+
+Installing 0.3.0 rebuilt the score from the watch's history, as every change of
+`ENGINE_VERSION` does. The watch no longer had sleep sessions for the night of 15 to 16 Nov,
+so the rebuild gave that night no recharge and read 31 on the morning of the 16th where the
+full replay gives 53. A day later the two were 3 points apart (55 and 58), which is the
+fading the scaling is meant to give. A rebuild is therefore only trustworthy for its most
+recent night.
+
 ## Not done, or not known
 
-- **Daytime drain is fitted to one morning.** Hard exercise, a seated day and an evening have
-  not been compared with anything.
+- **The fit rests on two days.** A seated day, a long calm night and an evening at rest have
+  not been recorded, and the reference and the wearer's own judgement disagreed on the
+  second day.
+- **Whether mornings ever read high.** With recharge slowing as the reserve fills, a good
+  night should give 75 to 85. No such night has been recorded.
 - **The HRV baseline has one night of three.** Until then HRV does not steer the rates.
 - **Battery:** the app reports sensor-on minutes (measured) and whole-watch drain per day
   (measured between launches). It does not convert sensor minutes into a percentage, because

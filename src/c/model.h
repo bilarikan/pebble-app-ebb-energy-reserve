@@ -1,7 +1,14 @@
 // Scoring model parameters. Every number here is a placeholder to be fitted during
 // validation (PRD "Scoring model"); none comes from another vendor's method.
-// docs/SCORING.md explains what each one does. Rates are in 1/100 reserve point per minute.
+// docs/SCORING.md explains what each one does. Rates are in 1/100 reserve point per minute,
+// as they apply at a reserve of 50.
 #pragma once
+
+// Every rate is scaled by the reserve itself: a drain takes a share of what is left
+// (rate x reserve / 50) and a recharge fills a share of what is missing
+// (rate x (100 - reserve) / 50). The score therefore settles where a day's cost and a
+// night's gain balance, and never sticks at 0 or 100.
+#define M_LEVEL_REF100        5000  // the reserve, in 1/100 point, at which the rates below apply
 
 // Recharge (g)
 #define M_G_SLEEP             11    // asleep, HRV at baseline: 6.6 points per hour
@@ -34,7 +41,7 @@
 #define M_STRESS_HR_SPAN      34    // bpm over which HR stress goes from 0 to 1
 
 // Not worn during the waking day: assume an ordinary day rather than no cost at all.
-#define M_D_AWAY              5     // 3 points per hour
+#define M_D_AWAY              5     // 3 points per hour at a reserve of 50
 #define M_AWAY_DAY_MIN        (16 * 60)   // only this long after the last main wake
 #define M_STRESS_HRV_Q_PCT    80    // awake HRV below this share of the awake reference is stress
 #define M_STRESS_HRV_SPAN     40    // percentage points over which HRV stress goes from 0 to 1
@@ -56,6 +63,8 @@
 #define M_RESTART_GAP_MIN     (24 * 60)   // off the wrist this long: the old score is dropped
 #define M_MAIN_SLEEP_MIN      180   // asleep minutes that make a sleep the day's main sleep
 #define M_SLEEP_MERGE_MIN     30    // a wake shorter than this continues the same sleep
+#define M_NIGHT_GAP_MIN       180   // back asleep within this long of the main wake: same night...
+#define M_NIGHT_MORE_MIN      60    // ...if the later sleep lasts at least this long
 #define M_RHR_PERCENTILE      10    // resting HR = this percentile of heart rate while asleep
 #define M_RHR_MIN_SAMPLES     5
 

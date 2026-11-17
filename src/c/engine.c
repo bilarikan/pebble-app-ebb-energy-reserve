@@ -55,16 +55,33 @@ const Night *engine_last_night(const Engine *e) {
   return e->night_count ? &e->nights[e->night_count - 1] : NULL;
 }
 
-static void night_upsert(Engine *e, const Night *n, bool same_sleep) {
-  // A sleep that resumes after a short wake ends more than once: replace its record.
-  if (same_sleep && e->night_count) {
-    e->nights[e->night_count - 1] = *n;
+// One record per night. `replace_last` is the newest night ending again (after a short wake,
+// or a later sleep the same night). Otherwise a record for the same day is replaced where it
+// stands, which also covers a night already on record when the state is rebuilt from history.
+static void night_upsert(Engine *e, const Night *n, bool replace_last) {
+  int at = -1;
+  if (replace_last && e->night_count) {
+    at = e->night_count - 1;
   } else {
+    for (int i = e->night_count - 1; i >= 0; i--) {
+      if (e->nights[i].day == n->day) { at = i; break; }
+    }
+  }
+  if (at < 0) {
     if (e->night_count == NIGHTS_MAX) {
       memmove(&e->nights[0], &e->nights[1], sizeof(Night) * (NIGHTS_MAX - 1));
       e->night_count--;
     }
-    e->nights[e->night_count++] = *n;
+    at = e->night_count++;
+  }
+  e->nights[at] = *n;
+  // Earlier versions could leave two records for one day; keep only this one.
+  for (int i = e->night_count - 1; i >= 0; i--) {
+    if (i != at && e->nights[i].day == n->day) {
+      memmove(&e->nights[i], &e->nights[i + 1], sizeof(Night) * (size_t)(e->night_count - 1 - i));
+      e->night_count--;
+      if (i < at) at--;
+    }
   }
   e->nights_dirty = true;
   engine_rebase(e);
@@ -143,14 +160,43 @@ static void curve_put(Engine *e, uint32_t t, bool worn) {
 }
 
 // ---- Main sleep ended ----------------------------------------------------------------------
+// A later sleep that belongs to the night already on record: the wearer woke for a while
+// (longer than M_SLEEP_MERGE_MIN) and went back to sleep.
+static bool night_continues(const EngineState *s) {
+  return s->wake_min && s->night_seg_start && s->night_seg_start != s->sleep_start_min &&
+         s->sleep_start_min >= s->wake_min && s->sleep_start_min - s->wake_min <= M_NIGHT_GAP_MIN;
+}
+
+// A sleep that ends a night: long enough to be the main sleep, or a shorter one that
+// follows it closely.
+static bool sleep_counts(const EngineState *s) {
+  return s->sleep_min >= M_MAIN_SLEEP_MIN ||
+         (s->sleep_min >= M_NIGHT_MORE_MIN && night_continues(s));
+}
+
 static void on_wake(Engine *e, uint32_t t) {
   EngineState *s = &e->st;
+  // Which night this is: the same sleep ending again, a later sleep of the same night, or
+  // a new night.
+  const bool same_sleep = e->night_count && s->night_seg_start == s->sleep_start_min;
+  const bool later_sleep = !same_sleep && e->night_count && night_continues(s);
+  if (later_sleep) {
+    const Night *prev = &e->nights[e->night_count - 1];
+    s->night_prev_min = prev->sleep_min;
+    s->night_prev_rhr = prev->rhr;
+  } else if (!same_sleep) {
+    s->night_prev_min = 0;
+    s->night_prev_rhr = 0;
+    s->night_sleep_start = s->sleep_start_min;
+  }
+  s->night_seg_start = s->sleep_start_min;
+
   static uint16_t vals[128];
   int n = 0;
   for (uint16_t i = 0; i < e->win_count && n < 128; i++) {
     const HrvWin *w = &e->wins[i];
     const uint32_t wt = win_time(w);
-    if (w->rmssd10 && win_asleep(w) && wt >= s->sleep_start_min && wt <= t) {
+    if (w->rmssd10 && win_asleep(w) && wt >= s->night_sleep_start && wt <= t) {
       vals[n++] = w->rmssd10;
     }
   }
@@ -168,20 +214,16 @@ static void on_wake(Engine *e, uint32_t t) {
     }
   }
 
+  if (s->night_prev_rhr && (!rhr || s->night_prev_rhr < rhr)) rhr = s->night_prev_rhr;
+
   Night night = {
     .day = (uint16_t)(((int32_t)t + e->tz_min) / 1440),
     .rmssd10 = (n >= M_MIN_NIGHT_WINDOWS) ? median_u16(vals, n) : 0,
-    .sleep_min = s->sleep_min,
+    .sleep_min = (uint16_t)clampi(s->night_prev_min + s->sleep_min, 0, UINT16_MAX),
     .rhr = rhr,
     .wins = (uint8_t)clampi(n, 0, 255),
   };
-  // The same sleep ending again, or (after the state was rebuilt from history) a night that
-  // is already on record.
-  const bool same_sleep = e->night_count &&
-      (s->night_sleep_start ? s->night_sleep_start == s->sleep_start_min
-                            : e->nights[e->night_count - 1].day == night.day);
-  night_upsert(e, &night, same_sleep);
-  s->night_sleep_start = s->sleep_start_min;
+  night_upsert(e, &night, same_sleep || later_sleep);
 
   s->wake_min = t;
   s->r0_100 = s->reserve100;
@@ -196,9 +238,14 @@ static void on_wake(Engine *e, uint32_t t) {
 }
 
 // ---- One minute ----------------------------------------------------------------------------
-// Ledgers record what was actually applied after clamping, so they always add up.
-static void apply(EngineState *s, int delta, int cat) {
+// `rate` is the change per minute at a reserve of 50. A drain is scaled by what is left and
+// a recharge by what is missing, with the remainder carried so slow rates are not rounded
+// away. Ledgers record what was actually applied, so they always add up.
+static void apply(EngineState *s, int rate, int cat) {
   const int before = s->reserve100;
+  const int32_t scaled = (int32_t)rate * (rate < 0 ? before : 10000 - before) + s->rem;
+  const int delta = (int)(scaled / M_LEVEL_REF100);
+  s->rem = (int16_t)(scaled % M_LEVEL_REF100);
   const int after = clampi(before + delta, 0, 10000);
   s->reserve100 = (uint16_t)after;
   s->tot[cat] += (uint32_t)(after > before ? after - before : before - after);
@@ -248,7 +295,7 @@ void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
     s->flags |= EF_STALE;
     if (s->flags & EF_ASLEEP) {
       s->flags &= ~EF_ASLEEP;
-      if (s->sleep_min >= M_MAIN_SLEEP_MIN) on_wake(e, t);
+      if (sleep_counts(s)) on_wake(e, t);
     }
     // Off the wrist in the waking day the wearer is still spending energy, so assume an
     // ordinary day. Anything else is unknowable (a night off the wrist, a watch left in a
@@ -294,7 +341,7 @@ void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
     }
   } else if (was_asleep) {
     s->flags &= ~EF_ASLEEP;
-    if (s->sleep_min >= M_MAIN_SLEEP_MIN) on_wake(e, t);
+    if (sleep_counts(s)) on_wake(e, t);
   }
 
   // ---- Rates: exactly one of the four terms applies each minute ----

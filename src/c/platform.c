@@ -265,7 +265,7 @@ static void dump_hour(uint32_t from_min) {
 
 // Half an hour of the per-minute record, six minutes to a line, each minute as hex:
 // steps (2), heart rate (2), motion counts capped at 4095 (3), flags (1: valid, asleep, restful).
-#define DUMP_MIN_HOURS 26
+#define DUMP_MIN_HOURS 46
 static void dump_minutes(uint32_t from_min) {
   HealthMinuteData *buf = malloc(sizeof(HealthMinuteData) * 30);
   if (!buf) return;

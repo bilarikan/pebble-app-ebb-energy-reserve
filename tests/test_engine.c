@@ -103,7 +103,10 @@ static void test_not_worn(void) {
   // period (M_NOT_WORN_MIN) runs out.
   CHECK(e->st.flags & EF_AWAY_EST, "off the wrist in the day is estimated, not frozen");
   const int32_t away = engine_since_wake(e, CAT_AWAY);
-  CHECK(away >= 900 && away <= 1200, "four hours off the wrist should cost about 3 points an hour, cost %d/100",
+  // 3 points an hour at a reserve of 50, in proportion to the reserve, for about 3.5 hours.
+  const int32_t nominal = 1050 * before / M_LEVEL_REF100;
+  CHECK(away >= nominal * 75 / 100 && away <= nominal * 110 / 100,
+        "four hours off the wrist from %d should cost about %d/100, cost %d/100", before, (int)nominal,
         (int)away);
   CHECK(abs(before - e->st.reserve100 - away) <= 150, "and little else: moved %d/100",
         e->st.reserve100 - before);
@@ -219,7 +222,11 @@ static void test_restart(void) {
 }
 
 // One hour of the same minute, with a heart-rate reading at once and every tenth minute.
+// Starts from a reserve of 50, where the rates in model.h apply as written.
 static void hour_of(Engine *e, int vmc, int steps, int hr) {
+  e->st.reserve100 = M_LEVEL_REF100;
+  e->st.rem = 0;
+  engine_mark_viewed(e);
   const uint32_t end = e->st.last_min + 60;
   for (uint32_t t = e->st.last_min + 1; t <= end; t++) {
     EngMinute m = { .flags = MF_VALID, .vmc = (uint16_t)vmc, .steps = (uint8_t)steps,
@@ -268,6 +275,128 @@ static void test_awake_terms(void) {
         "an hour at resting heart rate should give back about 2 points, gave %d/100", (int)rest);
 }
 
+// Rates scale with the reserve, so the score balances instead of sticking at an end.
+static void test_self_balancing(void) {
+  printf("self-balancing\n");
+  // Four hours flat out, harder than any ordinary day: close to empty, but not 0.
+  Engine *e = fresh(T0, T0 + 4 * DAY);
+  run(e, T0 + 3 * DAY + 15 * 60);
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + 3 * DAY + 19 * 60; t++) {
+    EngMinute m = { .flags = MF_VALID, .vmc = 6000, .steps = 150, .hr = 175 };
+    engine_minute(e, t, &m);
+  }
+  CHECK(e->st.reserve100 > 0 && e->st.reserve100 < 500, "four hours flat out should leave almost nothing, left %d/100",
+        e->st.reserve100);
+  // Sleep then refills fastest from empty.
+  const int low = e->st.reserve100;
+  run(e, T0 + 3 * DAY + 23 * 60 + 10);       // quiet evening, then asleep from 23:10
+  const int bed = e->st.reserve100;
+  run(e, T0 + 4 * DAY + 60 + 10);
+  const int two_hours = e->st.reserve100 - bed;
+  CHECK(two_hours >= 2000 && two_hours <= 3200, "two hours asleep from near empty should give 20 to 32 points, gave %d/100 from %d (low %d)",
+        two_hours, bed, low);
+
+  // The same hour costs more from a full reserve than from a low one.
+  e = fresh(T0, T0 + 4 * DAY);
+  run(e, T0 + 2 * DAY + 9 * 60);
+  e->st.reserve100 = 9000;
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + 2 * DAY + 10 * 60; t++) {
+    EngMinute m = { .flags = MF_VALID, .vmc = 1500 };
+    engine_minute(e, t, &m);
+  }
+  const int from_high = 9000 - e->st.reserve100;
+  e->st.reserve100 = 2000;
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + 2 * DAY + 11 * 60; t++) {
+    EngMinute m = { .flags = MF_VALID, .vmc = 1500 };
+    engine_minute(e, t, &m);
+  }
+  const int from_low = 2000 - e->st.reserve100;
+  CHECK(from_high > 3 * from_low && from_low > 100, "an hour on the feet: %d/100 from 90, %d/100 from 20",
+        from_high, from_low);
+
+  // A wrong starting value fades: two runs of the same days from 5 and 95 end up together.
+  Engine a, b;
+  Engine *x = fresh(T0, T0 + 6 * DAY);
+  x->st.reserve100 = 500;
+  a = *x;
+  x = fresh(T0, T0 + 6 * DAY);
+  x->st.reserve100 = 9500;
+  b = *x;
+  run(&a, T0 + 3 * DAY + 12 * 60);
+  run(&b, T0 + 3 * DAY + 12 * 60);
+  CHECK(abs(a.st.reserve100 - b.st.reserve100) <= 300, "after three days: %d vs %d", a.st.reserve100,
+        b.st.reserve100);
+}
+
+// Minutes asleep with a heart rate every tenth minute, or awake and still.
+static void feed(Engine *e, uint32_t to, bool asleep) {
+  for (uint32_t t = e->st.last_min + 1; t <= to; t++) {
+    EngMinute m = { .flags = (uint8_t)(MF_VALID | (asleep ? MF_ASLEEP : 0)), .vmc = (uint16_t)(asleep ? 5 : 80),
+                    .hr = (uint8_t)(t % 10 == 0 ? (asleep ? 56 : 70) : 0) };
+    engine_minute(e, t, &m);
+  }
+}
+
+static void test_split_night(void) {
+  printf("a night in two parts\n");
+  // Asleep 21:00 to 01:00, awake for an hour, asleep again until 05:30: one night.
+  Engine *e = fresh(T0, T0 + 2 * DAY);
+  engine_set_windows(e, NULL, 0);
+  feed(e, T0 + 21 * 60, false);
+  feed(e, T0 + DAY + 60, true);
+  feed(e, T0 + DAY + 2 * 60, false);
+  CHECK(e->night_count == 1 && e->nights[0].sleep_min == 240, "first part: %d nights, %d min", e->night_count,
+        e->nights[0].sleep_min);
+  feed(e, T0 + DAY + 5 * 60 + 30, true);
+  feed(e, T0 + DAY + 6 * 60, false);
+  CHECK(e->night_count == 1, "a night woken in the middle is one night, got %d", e->night_count);
+  CHECK(e->nights[0].sleep_min == 450, "both parts counted: %d min", e->nights[0].sleep_min);
+  CHECK(e->st.wake_min == T0 + DAY + 5 * 60 + 31, "the morning charge is taken at the final wake");
+
+  // The second part resumes after a brief stir: still one night, nothing counted twice.
+  e = fresh(T0, T0 + 2 * DAY);
+  engine_set_windows(e, NULL, 0);
+  feed(e, T0 + 21 * 60, false);
+  feed(e, T0 + DAY + 60, true);
+  feed(e, T0 + DAY + 2 * 60, false);
+  feed(e, T0 + DAY + 4 * 60, true);
+  feed(e, T0 + DAY + 4 * 60 + 10, false);
+  feed(e, T0 + DAY + 5 * 60 + 30, true);
+  feed(e, T0 + DAY + 6 * 60, false);
+  CHECK(e->night_count == 1 && e->nights[0].sleep_min == 240 + 120 + 80, "stirred: %d nights, %d min",
+        e->night_count, e->nights[0].sleep_min);
+
+  // A short second part counts too, but an afternoon nap is not part of the night.
+  e = fresh(T0, T0 + 2 * DAY);
+  engine_set_windows(e, NULL, 0);
+  feed(e, T0 + 21 * 60, false);
+  feed(e, T0 + DAY + 60, true);
+  feed(e, T0 + DAY + 2 * 60, false);
+  feed(e, T0 + DAY + 3 * 60 + 30, true);
+  feed(e, T0 + DAY + 13 * 60, false);
+  CHECK(e->night_count == 1 && e->nights[0].sleep_min == 330, "short second part: %d nights, %d min",
+        e->night_count, e->nights[0].sleep_min);
+  const uint32_t wake = e->st.wake_min;
+  feed(e, T0 + DAY + 14 * 60 + 30, true);
+  feed(e, T0 + DAY + 15 * 60, false);
+  CHECK(e->night_count == 1 && e->nights[0].sleep_min == 330 && e->st.wake_min == wake,
+        "a nap leaves the night alone: %d nights, %d min", e->night_count, e->nights[0].sleep_min);
+
+  // Two records for one day, left by an earlier version, collapse when that day is seen again.
+  e = fresh(T0, T0 + 2 * DAY);
+  engine_set_windows(e, NULL, 0);
+  const uint16_t day = (uint16_t)((T0 + DAY) / 1440);
+  e->nights[0] = (Night){ .day = (uint16_t)(day - 1), .sleep_min = 400, .rhr = 60 };
+  e->nights[1] = (Night){ .day = day, .sleep_min = 228, .rhr = 63 };
+  e->nights[2] = (Night){ .day = day, .sleep_min = 181, .rhr = 56 };
+  e->night_count = 3;
+  feed(e, T0 + 21 * 60, false);
+  feed(e, T0 + DAY + 5 * 60, true);
+  feed(e, T0 + DAY + 6 * 60, false);
+  CHECK(e->night_count == 2 && e->nights[1].day == day && e->nights[1].sleep_min == 480,
+        "duplicates collapse: %d nights, last %d min", e->night_count, e->nights[1].sleep_min);
+}
+
 static void test_calibration(void) {
   printf("calibration\n");
   Engine *e = fresh(T0, T0 + 4 * DAY);
@@ -308,7 +437,7 @@ static void test_low_hrv_night(void) {
     }
   }
   run(e, T0 + 5 * DAY + 7 * 60);
-  CHECK(e->st.r0_100 + 1000 < r0_good, "half the usual HRV should cut the morning charge: %d vs %d",
+  CHECK(e->st.r0_100 + 500 < r0_good, "half the usual HRV should cut the morning charge: %d vs %d",
         e->st.r0_100, r0_good);
   printf("  morning charge %d vs %d on a normal night\n", e->st.r0_100 / 100, r0_good / 100);
 }
@@ -402,6 +531,8 @@ int main(void) {
   test_away_limits();
   test_restart();
   test_awake_terms();
+  test_self_balancing();
+  test_split_night();
   test_calibration();
   test_no_hrv();
   test_low_hrv_night();

@@ -1,15 +1,20 @@
 # Scoring model
 
 The reserve is a running balance from 0 to 100. It refills while you sleep and rest and
-drains with exertion and stress. Everything is computed on the watch.
+drains with exertion and stress, and both slow down as it nears the end they are heading
+for. Everything is computed on the watch.
 
 **Every number below is a placeholder** to be fitted during validation. None comes from
 another vendor's method. The constants live in [`src/c/model.h`](../src/c/model.h) and the
 logic in [`src/c/engine.c`](../src/c/engine.c); this page describes both.
 
 ```
-R(t) = clamp[0,100]( R0 - sum over minutes of ( d_a + d_s - g ) )
+each minute:  R = R - d x R / 50          when the minute's term is a drain d
+              R = R + g x (100 - R) / 50  when it is a recharge g
 ```
+
+`d` and `g` are the rates in the tables below, which are therefore the rates at a reserve of
+50. See [Scaling with the reserve](#scaling-with-the-reserve).
 
 The engine advances one minute at a time from the watch's own per-minute health history
 (steps, motion counts, heart rate), the sleep sessions Pebble Health detected, and the HRV
@@ -60,9 +65,9 @@ expose it to apps, so quality is judged from the intervals themselves.
 
 ## The terms
 
-Rates are in reserve points per hour. `i` is exercise intensity as a share of heart-rate
-reserve: `(HR - resting) / (max - resting)`, 0 to 1. The first row that matches a minute is
-the one that applies.
+Rates are in reserve points per hour at a reserve of 50. `i` is exercise intensity as a
+share of heart-rate reserve: `(HR - resting) / (max - resting)`, 0 to 1. The first row that
+matches a minute is the one that applies.
 
 | Term | Applies when | Rate |
 | --- | --- | --- |
@@ -74,9 +79,8 @@ the one that applies.
 
 A still minute with no heart-rate reading in the last 15 gets no term.
 
-The awake rates are set so that an ordinary day spends about what a good night restores
-(roughly 55 points). Resting heart rate is measured asleep, and sitting awake is normally 8
-to 15 bpm above it, so a quiet hour at a desk costs 2 to 4 points; an hour on your feet about
+Resting heart rate is measured asleep, and sitting awake is normally 8 to 15 bpm above it,
+so at a reserve of 50 a quiet hour at a desk costs 2 to 4 points; an hour on your feet about
 5; an hour's easy walking 7 to 9; a hard hour's exercise 25 or more. Recharging while awake
 takes a heart rate close to its sleeping level, which mostly means lying down.
 
@@ -99,17 +103,61 @@ takes a heart rate close to its sleeping level, which mostly means lying down.
   minutes or so).
 - If heart rate is unknown while moving, intensity is estimated from step cadence.
 
+## Scaling with the reserve
+
+Every rate is multiplied by how far the reserve is from the end it is moving towards: a
+drain by `R / 50`, a recharge by `(100 - R) / 50`. A drain takes a share of what is left and
+a recharge fills a share of what is missing.
+
+| Reserve | Drains run at | Recharge runs at |
+| --- | --- | --- |
+| 10 | 0.2 x | 1.8 x |
+| 30 | 0.6 x | 1.4 x |
+| 50 | 1 x | 1 x |
+| 70 | 1.4 x | 0.6 x |
+| 90 | 1.8 x | 0.2 x |
+
+What follows from it:
+
+- **The score settles where a day's cost and a night's gain balance.** With fixed rates it
+  had nothing to stop it: a wearer whose days cost more than their nights gave back sat at 0
+  every evening (the second day in [DEVELOPMENT.md](DEVELOPMENT.md)).
+- **It approaches 0 and 100 without sticking.** Reaching either takes many hours of drain or
+  recharge with nothing the other way.
+- **A wrong starting value fades** within a day or two, because both runs are pulled to the
+  same balance.
+
+Where it settles, by the table rates added up over a day and a night:
+
+| Day costs | Night gives | Evening low | Morning high |
+| --- | --- | --- | --- |
+| 84 (a workout, a commute, an active evening) | 42 (a broken 7 hours) | about 11 | about 60 |
+| 55 | 55 (a calm 8 hours) | about 25 | about 75 |
+| 35 (a quiet day) | 60 (a long calm night) | about 41 | about 82 |
+
+The first row is the wearer's recorded day repeated; the others are worked out from the
+formula. Mornings above 90 would need several easy days and long nights in a row.
+
 ## Morning charge (R0)
 
 There is no separate formula. The reserve refills through the night at the asleep rate, steered
-by heart rate and each overnight HRV window, and R0 is simply its value when the main sleep
-(3 hours or more) ends. A longer night gives more minutes of refill; a heart rate near resting
-and HRV at or above baseline give more per minute. A full-quality 8-hour night adds roughly 55
-points. A wake of under 30 minutes continues the same sleep.
+by heart rate and each overnight HRV window, and R0 is simply its value when the night's
+sleep ends. A longer night gives more minutes of refill; a heart rate near resting and HRV at
+or above baseline give more per minute; and a lower starting point gives more, because
+recharge scales with what is missing. A full-quality 8-hour night takes a reserve of 20 to
+about 73, and one of 60 to about 87.
 
-At that moment the night is recorded (sleep minutes, median overnight RMSSD, resting heart
-rate) and the baseline is recomputed. A night needs at least 3 HRV windows to count toward the
-HRV baseline.
+What counts as one night:
+
+- A main sleep is 3 hours or more.
+- A wake of under 30 minutes continues the same sleep.
+- A longer wake, followed within 3 hours by at least another hour of sleep, is still the same
+  night. The minutes are added, the HRV windows of both parts are used, and the morning
+  charge is taken at the final wake.
+
+At each such wake the night is recorded (sleep minutes, median overnight RMSSD, resting heart
+rate) and the baseline is recomputed. There is one record per night. A night needs at least
+3 HRV windows to count toward the HRV baseline.
 
 ## States
 
@@ -127,7 +175,7 @@ HRV baseline.
 | Fewer than 3 nights with HRV | Score runs on heart rate, sleep and motion only (`m` = 1) | "Calibrating: night n of 3", LOW CONF |
 | No heart rate for 30 minutes, no steps, and no motion in the last 15 | Counted as not worn; the curve shows a gap | See the next two rows |
 | No heart rate for 2 hours and no steps | Counted as not worn even if the watch is moving | See the next two rows |
-| Not worn, within 16 hours of the last main wake, and Pebble Health does not call the minute asleep | Score drains at 3 points per hour, the average of an ordinary day | "Not worn: estimating", STALE |
+| Not worn, within 16 hours of the last main wake, and Pebble Health does not call the minute asleep | Score drains at 3 points per hour (at a reserve of 50), roughly an ordinary day | "Not worn: estimating", STALE |
 | Not worn at any other time (a night off the wrist, before the first night, a watch in a drawer) | Score freezes | "Not worn: score frozen", STALE |
 | Worn again after an hour or more off | Score resumes from where it was | "Resumed after a gap", LOW CONF until the next full night |
 | Worn again after a day or more off | Score restarts at 40, the first-run value; the baseline is kept | "Restarted after time off", LOW CONF until the next full night |
@@ -140,14 +188,14 @@ watch lying on a table can look asleep. Motion counts tell the two apart: a tabl
 at all, and a wrist gives some even when still. That matters because heart-rate records can
 pause for half an hour or more on a wrist.
 
-The first-run starting point is 40. It is arbitrary, and an offset in it lasts until the
-score next reaches 0 or 100. The same value is used after a day or more off the wrist: the
-nights slept without the watch were never seen, so the old score says nothing about now.
+The first-run starting point is 40. It is arbitrary, and an error in it fades within a day
+or two. The same value is used after a day or more off the wrist: the nights slept without
+the watch were never seen, so the old score says nothing about now.
 
 ## The reason line
 
-The engine keeps a running total of what each term actually changed, after clamping at 0 and
-100, so the parts always add up to the score. The main screen shows the difference since you
+The engine keeps a running total of what each term actually changed, after scaling, so the
+parts always add up to the score. The main screen shows the difference since you
 last closed the app, for example `-8 activity, -3 stress, +5 rest`. Points assumed while the
 watch was off the wrist are listed separately as `off wrist`. The breakdown view shows the
 same totals since the morning charge.
@@ -167,11 +215,15 @@ same totals since the morning charge.
 - **Pebble Health can call a still watch asleep.** After two hours on a desk the watch
   reported sleep, and kept reporting it for a while once worn. The engine ignores sleep
   without heart rate, but minutes worn-and-still straight after that are treated as sleep.
-- **Sleep recharge is fitted to one night against one reference** (see the first night in
-  [DEVELOPMENT.md](DEVELOPMENT.md)). The reference gained about 50 points; this model gives 57 for the same night.
-- **Daytime drain is fitted to one morning against one reference** (see the first day in
-  [DEVELOPMENT.md](DEVELOPMENT.md)): light activity and easy walking only. Hard exercise,
-  a quiet desk day and an evening have not been compared with anything.
+- **The rates are fitted to three nights and two days on one wrist** (see
+  [DEVELOPMENT.md](DEVELOPMENT.md)), against one reference device and the wearer's own
+  judgement, which did not always agree with each other. A quiet desk day and a long calm
+  night have not been recorded yet.
+- **The top of the scale is hard to reach.** Recharge slows as the reserve fills, so a
+  wearer used to seeing 100 after a good night elsewhere will see 75 to 85 here.
+- **The scaling is the simplest that balances** (straight proportion). Nothing says the
+  body follows it; it was chosen because it fitted both recorded days without changing any
+  rate.
 - **Time off the wrist is a guess.** The app cannot know whether the wearer sat or ran. It
   assumes an ordinary day and says so.
 - **The label "stress" covers plain sitting.** Any still, awake minute with a heart rate

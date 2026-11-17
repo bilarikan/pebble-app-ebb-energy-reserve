@@ -7,7 +7,7 @@ sleep. Nothing leaves the watch except a small backup to your own phone.
 
 It is an estimate, not medical advice, and it does not diagnose anything.
 
-This guide covers version 0.2.1. The app is an early release and the scoring is still being
+This guide covers version 0.3.0. The app is an early release and the scoring is still being
 tuned.
 
 ## Setting up
@@ -88,9 +88,10 @@ Press Select on the main screen. Up and Down scroll.
 
 ## What moves the score
 
-These are typical figures. Yours shift with your own resting heart rate and HRV.
+These are typical figures when the score is around 50. Yours shift with your own resting
+heart rate and HRV.
 
-| What you are doing | Effect per hour |
+| What you are doing | Effect per hour, at a score near 50 |
 | --- | --- |
 | Asleep, heart rate near your resting level | Up about 7; a little more in deep sleep |
 | Asleep with a raised heart rate (after alcohol, a late meal, illness, a late workout) | Up as little as 2 |
@@ -102,9 +103,20 @@ These are typical figures. Yours shift with your own resting heart rate and HRV.
 | Still, but heart rate well above resting or HRV low (strain) | Down up to 11 |
 | Watch off your wrist during the day | Down 3, as a guess |
 
-Two things follow from this:
+Everything slows down as the score nears the end it is heading for:
 
-- **A full, calm night is worth about 55 points,** and an ordinary day spends about the same.
+- **Drains take a share of what is left.** The same walk costs about twice as much at 90 as
+  at 45, and very little at 10.
+- **Sleep fills a share of what is missing.** A night adds more points when you go to bed at
+  15 than when you go to bed at 60.
+
+Three things follow from this:
+
+- **The score settles into your own range.** If your days cost more than your nights give
+  back, you will run lower overall, perhaps 10 to 60. With calm days and long nights it
+  might be 40 to 80. It will not sit at 0 or pin at 100.
+- **The top is hard to reach.** A good night after an ordinary day gives a morning of 75 to
+  85. Do not expect 100.
 - **Sitting still does not recharge you.** Your resting heart rate is measured while you
   sleep, and sitting awake is normally well above it. Only something close to lying down at
   rest gives a little back.
@@ -136,7 +148,7 @@ Ebb decides the watch is off when it has had no heart rate for 30 minutes and no
 
 | How long it is off | What happens | What you see |
 | --- | --- | --- |
-| During the day, up to 16 hours after you woke | The score drains at 3 points an hour, a guess at an ordinary day | "Not worn: estimating" |
+| During the day, up to 16 hours after you woke | The score drains at about 3 points an hour (less when it is low), a guess at an ordinary day | "Not worn: estimating" |
 | Overnight, or longer | The score freezes | "Not worn: score frozen" |
 | Back on after an hour or more | Carries on from where it was | "Resumed after a gap", LOW CONF until the next full night |
 | Back on after a day or more | Restarts at 40. Your baseline is kept | "Restarted after time off", LOW CONF until the next full night |
@@ -195,8 +207,9 @@ your own phone so it can be restored if the watch loses it.
 - **It knows only what the watch measures.** It does not know your age, weight or fitness
   beyond the maximum heart rate you set, and it does not know what you ate or how you feel.
 - **Time off the wrist is a guess.** Ebb cannot tell whether you sat or ran.
-- **A mistake in the starting point lasts.** The score is a running total, so if it starts
-  a day too high or too low it stays that way until it next reaches 0 or 100.
+- **The first day or two after a restart are rough.** A new install, or a watch put back
+  on after a day or more, starts from 40, which is only a placeholder. It finds your range
+  within a day or two.
 - **It is not a medical device.** Do not use it to decide whether you are well.
 
 How the score is calculated, in full, is in [SCORING.md](SCORING.md).
