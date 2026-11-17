@@ -57,7 +57,9 @@
 // Signal handling
 #define M_HR_HOLD_MIN         15    // a heart-rate reading stands in for this many minutes
 #define M_NOT_WORN_MIN        30    // no heart rate for this long: frozen and marked stale...
-#define M_MOTION_HOLD_MIN     15    // ...unless the watch moved this recently (a table gives none)
+#define M_MOTION_HOLD_MIN     15    // ...unless the watch moved this recently (at most 15)...
+#define M_MOTION_DENSE_MIN    5     // ...in at least this many of those minutes when awake: a wrist
+                                    // moves most minutes, a watch on a desk only when buzzed or nudged
 #define M_HR_GAP_MAX_MIN      120   // ...and the last heart rate is no older than this
 #define M_LOW_CONF_GAP_MIN    60    // a frozen stretch shorter than this does not dent confidence
 #define M_RESTART_GAP_MIN     (24 * 60)   // off the wrist this long: the old score is dropped

@@ -260,6 +260,21 @@ full replay gives 53. A day later the two were 3 points apart (55 and 58), which
 fading the scaling is meant to give. A rebuild is therefore only trustworthy for its most
 recent night.
 
+## Off the wrist, but counted as worn (17 Nov 2026)
+
+The wearer reported that "Not worn" no longer appeared. The watch had been on a desk for
+almost two hours with the score still running. Since the first night, any motion in the last
+15 minutes had been allowed to stand in for a heart rate for up to two hours, to cover
+heart-rate pauses on a still wrist. A desk is not that still: in 110 minutes the watch
+recorded motion in 22 separate minutes (notification buzzes, nudges, being picked up).
+
+On the record there were eight heart-rate gaps of half an hour or more. Seven were times the
+watch was off, with motion in 2% to 22% of their minutes; the eighth was a commute with 1,377
+steps, which counts as worn by its steps. Worn and awake, the median was 12 minutes with
+motion in every 15. While awake the rule now needs motion in 5 of the last 15 minutes;
+asleep it is unchanged. Replayed, the notice would have appeared 31 minutes after the last
+heart rate that morning, and the two recorded days move by under 2 points.
+
 ## Not done, or not known
 
 - **The fit rests on two days.** A seated day, a long calm night and an evening at rest have

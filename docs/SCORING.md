@@ -173,7 +173,7 @@ rate) and the baseline is recomputed. There is one record per night. A night nee
 | Situation | What happens | Shown as |
 | --- | --- | --- |
 | Fewer than 3 nights with HRV | Score runs on heart rate, sleep and motion only (`m` = 1) | "Calibrating: night n of 3", LOW CONF |
-| No heart rate for 30 minutes, no steps, and no motion in the last 15 | Counted as not worn; the curve shows a gap | See the next two rows |
+| No heart rate for 30 minutes, no steps, and too little motion: awake, fewer than 5 of the last 15 minutes with any; asleep, none | Counted as not worn; the curve shows a gap | See the next two rows |
 | No heart rate for 2 hours and no steps | Counted as not worn even if the watch is moving | See the next two rows |
 | Not worn, within 16 hours of the last main wake, and Pebble Health does not call the minute asleep | Score drains at 3 points per hour (at a reserve of 50), roughly an ordinary day | "Not worn: estimating", STALE |
 | Not worn at any other time (a night off the wrist, before the first night, a watch in a drawer) | Score freezes | "Not worn: score frozen", STALE |
@@ -184,9 +184,14 @@ rate) and the baseline is recomputed. There is one record per night. A night nee
 | More than 48 hours since the app last ran | The last 48 hours are replayed; the stretch before them is skipped and counts as time off the wrist, so a day or more of it restarts the score | As for time off of that length |
 
 Sleep on its own does not count as worn: Pebble's sleep detection is motion-based, and a
-watch lying on a table can look asleep. Motion counts tell the two apart: a table gives none
-at all, and a wrist gives some even when still. That matters because heart-rate records can
-pause for half an hour or more on a wrist.
+watch lying on a table can look asleep. Motion counts tell the two apart, which matters
+because heart-rate records can pause for half an hour or more on a wrist. Awake, a wrist
+moves in most minutes, while a watch on a desk moves only when it buzzes or is nudged, so
+one stray movement does not count: it takes 5 minutes with motion in the last 15. Asleep, a
+wrist is still most of the time, so any movement in the last 15 minutes counts.
+
+The notice appears 30 to 50 minutes after the watch comes off: 30 for the heart-rate hold,
+and up to 20 more because the watch writes its history with a delay.
 
 The first-run starting point is 40. It is arbitrary, and an error in it fades within a day
 or two. The same value is used after a day or more off the wrist: the nights slept without
@@ -224,6 +229,10 @@ same totals since the morning charge.
 - **The scaling is the simplest that balances** (straight proportion). Nothing says the
   body follows it; it was chosen because it fitted both recorded days without changing any
   rate.
+- **The sensor sometimes reports a heart rate with the watch off the wrist.** One desk
+  stretch held readings of 119 to 122 with no motion at all, which was scored as 38 minutes
+  of strain (about 4 points). The app cannot see the sensor's confidence, and ignoring
+  motionless readings would also ignore a wearer lying still, so they are accepted.
 - **Time off the wrist is a guess.** The app cannot know whether the wearer sat or ran. It
   assumes an ordinary day and says so.
 - **The label "stress" covers plain sitting.** Any still, awake minute with a heart rate

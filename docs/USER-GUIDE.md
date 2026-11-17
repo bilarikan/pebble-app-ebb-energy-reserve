@@ -7,7 +7,7 @@ sleep. Nothing leaves the watch except a small backup to your own phone.
 
 It is an estimate, not medical advice, and it does not diagnose anything.
 
-This guide covers version 0.3.0. The app is an early release and the scoring is still being
+This guide covers version 0.3.1. The app is an early release and the scoring is still being
 tuned.
 
 ## Setting up
@@ -144,7 +144,9 @@ level, the small cost of being up, and does not mean you were tense.
 
 ## When the watch is off your wrist
 
-Ebb decides the watch is off when it has had no heart rate for 30 minutes and no movement.
+Ebb decides the watch is off when it has had no heart rate for 30 minutes and no steady
+movement. The notice appears 30 to 50 minutes after you take it off. A watch lying on a desk
+still counts as off when a notification buzzes it or it gets nudged.
 
 | How long it is off | What happens | What you see |
 | --- | --- | --- |

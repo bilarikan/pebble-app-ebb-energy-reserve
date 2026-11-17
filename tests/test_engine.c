@@ -492,6 +492,34 @@ static void test_hr_gap(void) {
   }
   CHECK(e->st.flags & EF_STALE, "motion alone does not count for ever");
 
+  // On a desk: no heart rate, and one movement every ten minutes (a buzz, a nudge). Awake,
+  // that is not a wrist.
+  e = fresh(T0, T0 + 3 * DAY);
+  run(e, T0 + DAY + 14 * 60);
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + DAY + 14 * 60 + 45; t++) {
+    EngMinute m = { .vmc = (uint16_t)(t % 10 ? 0 : 1500), .flags = MF_VALID };
+    engine_minute(e, t, &m);
+  }
+  CHECK(e->st.flags & EF_STALE, "a buzz every ten minutes is not a wrist: flags %d", e->st.flags);
+  CHECK(e->st.flags & EF_AWAY_EST, "and in the day it is estimated");
+  // Four minutes in fifteen is still too few; five is enough (the fidgeting above).
+  e = fresh(T0, T0 + 3 * DAY);
+  run(e, T0 + DAY + 14 * 60);
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + DAY + 15 * 60; t++) {
+    EngMinute m = { .vmc = (uint16_t)(t % 15 < 4 ? 900 : 0), .flags = MF_VALID };
+    engine_minute(e, t, &m);
+  }
+  CHECK(e->st.flags & EF_STALE, "four moving minutes in fifteen: not worn");
+  // Asleep a wrist is still most of the time, so one movement in fifteen minutes still counts.
+  e = fresh(T0, T0 + 3 * DAY);
+  run(e, T0 + DAY + 2 * 60);
+  for (uint32_t t = e->st.last_min + 1; t <= T0 + DAY + 3 * 60; t++) {
+    EngMinute m = { .vmc = (uint16_t)(t % 10 ? 0 : 60), .flags = MF_VALID | MF_ASLEEP };
+    engine_minute(e, t, &m);
+  }
+  CHECK(!(e->st.flags & EF_STALE) && (e->st.flags & EF_ASLEEP), "asleep with a heart-rate pause: still worn, flags %d",
+        e->st.flags);
+
   // A short freeze does not dent confidence; the long one in test_not_worn does.
   e = fresh(T0, T0 + 3 * DAY);
   run(e, T0 + DAY + 14 * 60);

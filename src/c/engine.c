@@ -286,8 +286,16 @@ void engine_minute(Engine *e, uint32_t t, const EngMinute *m) {
   // detection is motion-based and a watch on a table can look asleep. Heart-rate readings
   // can pause for half an hour or more on a wrist, so recent motion bridges a longer gap:
   // a watch on a table reports none at all.
-  if (valid && (m->steps > 0 || m->vmc > 0)) s->last_motion_min = t;
-  const bool moved = s->last_motion_min && t - s->last_motion_min <= M_MOTION_HOLD_MIN;
+  // Awake, one stray movement is not enough: a watch lying on a desk moves when it buzzes
+  // or is nudged. Asleep, a wrist is still most of the time, so any movement counts.
+  const bool motion = valid && (m->steps > 0 || m->vmc > 0);
+  const uint32_t skipped = t - s->last_min - 1;   // minutes never seen count as no motion
+  s->motion_bits = skipped >= 16 ? 0 : (uint16_t)(s->motion_bits << skipped);
+  s->motion_bits = (uint16_t)((s->motion_bits << 1) | (motion ? 1 : 0));
+  if (motion) s->last_motion_min = t;
+  int recent = 0;
+  for (uint16_t b = s->motion_bits & ((1u << M_MOTION_HOLD_MIN) - 1); b; b &= (uint16_t)(b - 1)) recent++;
+  const bool moved = (valid && (m->flags & MF_ASLEEP)) ? recent >= 1 : recent >= M_MOTION_DENSE_MIN;
   const bool worn = valid && (m->steps > 0 || hr_age <= M_NOT_WORN_MIN ||
                               (moved && hr_age <= M_HR_GAP_MAX_MIN));
   if (!worn) {
