@@ -47,4 +47,5 @@ void plat_log_diagnostics(void);          // what the health service gives this 
 #if defined(ER_DEBUG) && !defined(ER_DEMO)
 // Logs what the score was built from. Call with step 0, 1, 2... until it returns false.
 bool plat_debug_dump(const Engine *e, int step);
+void plat_debug_force_rebuild(const Engine *e);
 #endif

@@ -23,6 +23,9 @@
 #define PK_NIGHTS     23   // nightly summaries, the personal baseline (app)
 #define PK_ONBOARDED  24   // onboarding notice acknowledged (app)
 #define PK_BATT       25   // BattTrack     (app)
+#define PK_ANCHOR     26   // EngineState from at least four hours ago (app)
+#define PK_SETTLE     27   // sleep labels recent minutes were scored with (app)
+#define PK_NEXT       28   // EngineState that becomes the anchor once it is old enough (app)
 
 // ---- Settings ------------------------------------------------------------------------------
 #define SETTINGS_VERSION 1

@@ -145,6 +145,7 @@ static void debug_timer(void *context) {
     app_timer_register(250, debug_timer, NULL);
     return;
   }
+  plat_debug_force_rebuild(&s_eng);   // the next minute's catch-up rebuilds; compare its log
 #endif
   ui_main_measure_now();
 }

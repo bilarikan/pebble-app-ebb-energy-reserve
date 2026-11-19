@@ -42,7 +42,10 @@ hours minute by minute), then start an HRV measurement and log the raw beat inte
 minute lines (`M`) are enough to replay a day through `engine.c` on a computer, which is how
 the rates were fitted. One trap: the sleep flag in those lines is only right for the most
 recent night, because the watch's sleep-session query returned only the latest sessions.
-Reinstall the normal build afterwards; the debug build is not the store build. Read it with `--logs` straight after
+After the dump the debug build flips one remembered sleep label, which makes the next
+minute's catch-up rebuild the last four hours from the anchor; the `state:` log line after
+it should match the one before. Reinstall the normal build afterwards; the debug build is
+not the store build. Read it with `--logs` straight after
 installing; set `PYTHONUNBUFFERED=1` when sending the tool's output to a file. In any build,
 a long press on Select asks the sampler for a measurement now instead of waiting for its
 schedule.
@@ -71,6 +74,11 @@ requests.
 | `src/c/demo_data.c` | Synthetic data, compiled only with `ER_DEMO` |
 | `tests/` | Host-side engine tests |
 
+`platform.c` also keeps two older copies of the engine state (`PK_ANCHOR`, `PK_NEXT`) and the
+sleep label each recent minute was scored with (`PK_SETTLE`), so the score can be rebuilt
+when Pebble Health labels a stretch as sleep after the fact. See "Sleep is labelled late" in
+[SCORING.md](SCORING.md).
+
 How the pieces fit: the worker only samples. It appends one RMSSD value per burst to a ring
 in persistent storage. The app does the scoring by replaying the watch's own per-minute
 health history from where it last stopped, so the answer is the same whether the app was open
@@ -95,7 +103,7 @@ Also in place: a small versioned score record for a later watchface (`PK_SCORE`)
 backed up to the phone and restored if the watch loses it, a firmware check at launch, and a
 notice when another app's worker holds the single background slot.
 
-Storage used is about 2 KiB of the 4 KiB each app gets.
+Storage used is about 2.5 KiB of the 4 KiB each app gets.
 
 ## First wear (14 Nov 2026)
 
@@ -274,6 +282,50 @@ steps, which counts as worn by its steps. Worn and awake, the median was 12 minu
 motion in every 15. While awake the rule now needs motion in 5 of the last 15 minutes;
 asleep it is unchanged. Replayed, the notice would have appeared 31 minutes after the last
 heart rate that morning, and the two recorded days move by under 2 points.
+
+## Fourth night (18 to 19 Nov 2026)
+
+Version 0.3.1. The wearer found the score too slow to move: sitting in the high 20s through
+the afternoon and evening, 47 at 03:00 after a short night, and unchanged after lying in bed
+until 05:45, where a reference device put on at 03:00 read about 60 and then about 75. The
+60 is the reference's own figure on being put on, not a reading of the night.
+
+What the record showed:
+
+- **Sleep labelled after the fact was lost.** Asleep 23:37 to 02:52, up briefly, then still
+  in bed from 03:10. Pebble Health labelled 03:10 to 04:30 as sleep, but only from about
+  04:15 (the sampler still saw "awake" at 03:34 and 04:05). The app had been opened in
+  between and had already scored those minutes as awake, so they were never credited: about
+  9 points.
+- **The night itself was scored as intended:** 17 to 46 in 3 hours 15 minutes.
+- **The evening crawl was the scaling.** At a reserve of 20 a drain ran at 0.4 of its rate.
+
+What changed:
+
+- **The last four hours are rebuilt when a sleep label changes** (see "Sleep is labelled
+  late" in [SCORING.md](SCORING.md)). Forcing a rebuild on the watch reproduced the same
+  state exactly.
+- **Drain scaling softened** from `R / 50` to `(R + 20) / 70`: 0.57 of the rate at a reserve
+  of 20, and 1.71 at 100 where it was 2.
+- **Sleep 6.6 to 7.2 points per hour, quiet rest awake 1.8 to 3.6.**
+
+Replayed on the records, old against new:
+
+| | 0.3.1 | 0.4.0 |
+| --- | --- | --- |
+| 16 Nov, waking (felt about 62) | 67 | 70 |
+| 16 Nov 12:15 (felt 28 to 45) | 28 | 28 |
+| 16 Nov, bedtime | 13 | 7 |
+| 18 Nov 17:30 | 19 | 15 |
+| 18 Nov 23:15 | 13 | 8 |
+| 19 Nov 02:52, waking | 44 | 43 |
+| 19 Nov 05:00 | 52 with the label fix, 45 as worn | 52 |
+
+The softer drains lower the evening by about 5 points and, because the night starts lower,
+leave the morning where it was. Reaching the 75 the wearer felt nearer to would take about
+three times the sleep rate, which would break the nights that did agree. The wearer's own
+judgement has now pulled both ways (73 was "a bit too high" on 16 Nov), so the next step is
+more days, not more tuning.
 
 ## Not done, or not known
 

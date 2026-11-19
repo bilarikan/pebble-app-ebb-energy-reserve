@@ -4,16 +4,20 @@
 // as they apply at a reserve of 50.
 #pragma once
 
-// Every rate is scaled by the reserve itself: a drain takes a share of what is left
-// (rate x reserve / 50) and a recharge fills a share of what is missing
-// (rate x (100 - reserve) / 50). The score therefore settles where a day's cost and a
-// night's gain balance, and never sticks at 0 or 100.
+// Every rate is scaled by the reserve itself, so the score settles where a day's cost and a
+// night's gain balance instead of sticking at 0 or 100.
+//   A recharge fills a share of what is missing:  rate x (100 - reserve) / 50
+//   A drain takes a share of what is left, softened so the score keeps moving when it is
+//   low:                                          rate x (reserve + 20) / 70
 #define M_LEVEL_REF100        5000  // the reserve, in 1/100 point, at which the rates below apply
+#define M_DRAIN_SOFT100       2000  // softening of the drain scaling, 1/100 point (0 = none):
+                                    // drains run at 0.29x at a reserve of 0, 1.71x at 100
+#define M_GAIN_SOFT100        0     // the same for recharge: 2x at 0, nothing at 100
 
 // Recharge (g)
-#define M_G_SLEEP             11    // asleep, HRV at baseline: 6.6 points per hour
+#define M_G_SLEEP             12    // asleep, HRV at baseline: 7.2 points per hour
 #define M_RESTFUL_PCT         120   // multiplier for restful (deep) sleep minutes, percent
-#define M_G_REST              3     // awake, still, heart rate at resting: 1.8 points per hour
+#define M_G_REST              6     // awake, still, heart rate at resting: 3.6 points per hour
 // Sleep with a raised heart rate (alcohol, illness, a late workout, or not really asleep)
 // refills more slowly. Needs a resting heart rate, so it starts after the first night.
 #define M_SLEEP_HR_MARGIN     5     // bpm above resting HR that still counts as full-rate sleep

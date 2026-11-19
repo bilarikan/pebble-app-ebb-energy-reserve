@@ -181,9 +181,9 @@ static void on_wake(Engine *e, uint32_t t) {
   const bool same_sleep = e->night_count && s->night_seg_start == s->sleep_start_min;
   const bool later_sleep = !same_sleep && e->night_count && night_continues(s);
   if (later_sleep) {
-    const Night *prev = &e->nights[e->night_count - 1];
-    s->night_prev_min = prev->sleep_min;
-    s->night_prev_rhr = prev->rhr;
+    // From the state, not the record: the platform may replay this wake more than once.
+    s->night_prev_min = s->night_total_min;
+    s->night_prev_rhr = s->night_last_rhr;
   } else if (!same_sleep) {
     s->night_prev_min = 0;
     s->night_prev_rhr = 0;
@@ -224,6 +224,8 @@ static void on_wake(Engine *e, uint32_t t) {
     .wins = (uint8_t)clampi(n, 0, 255),
   };
   night_upsert(e, &night, same_sleep || later_sleep);
+  s->night_total_min = night.sleep_min;
+  s->night_last_rhr = night.rhr;
 
   s->wake_min = t;
   s->r0_100 = s->reserve100;
@@ -243,9 +245,13 @@ static void on_wake(Engine *e, uint32_t t) {
 // away. Ledgers record what was actually applied, so they always add up.
 static void apply(EngineState *s, int rate, int cat) {
   const int before = s->reserve100;
-  const int32_t scaled = (int32_t)rate * (rate < 0 ? before : 10000 - before) + s->rem;
-  const int delta = (int)(scaled / M_LEVEL_REF100);
-  s->rem = (int16_t)(scaled % M_LEVEL_REF100);
+  const int32_t soft = rate < 0 ? M_DRAIN_SOFT100 : M_GAIN_SOFT100;
+  const int32_t den = M_LEVEL_REF100 + soft;
+  // The remainder is kept as a fraction (1/8192 of a unit) so it means the same either way.
+  const int32_t scaled = (int32_t)rate * ((rate < 0 ? before : 10000 - before) + soft) +
+                         (int32_t)s->rem * den / 8192;
+  const int delta = (int)(scaled / den);
+  s->rem = (int16_t)((scaled % den) * 8192 / den);
   const int after = clampi(before + delta, 0, 10000);
   s->reserve100 = (uint16_t)after;
   s->tot[cat] += (uint32_t)(after > before ? after - before : before - after);

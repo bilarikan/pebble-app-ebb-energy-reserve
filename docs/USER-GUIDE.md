@@ -7,7 +7,7 @@ sleep. Nothing leaves the watch except a small backup to your own phone.
 
 It is an estimate, not medical advice, and it does not diagnose anything.
 
-This guide covers version 0.3.1. The app is an early release and the scoring is still being
+This guide covers version 0.4.0. The app is an early release and the scoring is still being
 tuned.
 
 ## Setting up
@@ -95,7 +95,7 @@ heart rate and HRV.
 | --- | --- |
 | Asleep, heart rate near your resting level | Up about 7; a little more in deep sleep |
 | Asleep with a raised heart rate (after alcohol, a late meal, illness, a late workout) | Up as little as 2 |
-| Lying or sitting with your heart rate close to its sleeping level | Up about 2 |
+| Lying or sitting with your heart rate close to its sleeping level | Up about 4 |
 | Sitting, awake | Down 2 to 4 |
 | On your feet: housework, cooking, standing about | Down about 5 |
 | Easy walking | Down 7 to 9 |
@@ -105,16 +105,16 @@ heart rate and HRV.
 
 Everything slows down as the score nears the end it is heading for:
 
-- **Drains take a share of what is left.** The same walk costs about twice as much at 90 as
-  at 45, and very little at 10.
+- **Drains take a share of what is left.** The same walk costs about two thirds more at 90
+  than at 45, and under half as much at 10.
 - **Sleep fills a share of what is missing.** A night adds more points when you go to bed at
   15 than when you go to bed at 60.
 
 Three things follow from this:
 
 - **The score settles into your own range.** If your days cost more than your nights give
-  back, you will run lower overall, perhaps 10 to 60. With calm days and long nights it
-  might be 40 to 80. It will not sit at 0 or pin at 100.
+  back, you will run lower overall, perhaps 5 to 55. With calm days and long nights it
+  might be 45 to 85. It should not sit at 0 or pin at 100.
 - **The top is hard to reach.** A good night after an ordinary day gives a morning of 75 to
   85. Do not expect 100.
 - **Sitting still does not recharge you.** Your resting heart rate is measured while you
@@ -128,6 +128,10 @@ level, the small cost of being up, and does not mean you were tense.
 
 - **Wear it every night.** Without the night, the morning number is carried over from
   yesterday.
+- **Looking at it in the night is fine.** Pebble Health decides you were asleep an hour or
+  more after the fact. If you check the score in bed, it may not move at first; it is
+  corrected the next time the app updates, and that includes time spent lying still that
+  Pebble Health counts as sleep.
 - **Open the app at least once a day.** Ebb measures in the background but works out the
   score when you open it, from the watch's own history. The watch keeps about two days of
   that history, so leaving the app unopened for longer loses it and the score restarts.

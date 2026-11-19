@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include "shared.h"
 
-#define ENGINE_VERSION   7
+#define ENGINE_VERSION   8
 #define CURVE_SLOTS      96      // 24 h at 15 minutes
 #define CURVE_SLOT_MIN   15
 #define CURVE_NONE       255     // slot with no data (not worn)
@@ -77,6 +77,8 @@ typedef struct __attribute__((packed)) {
   uint16_t night_prev_min;     // asleep minutes in earlier sleeps of the same night
   int16_t  rem;                // what the last scaled change left over, in 1/M_LEVEL_REF100 unit
   uint16_t motion_bits;        // one bit per minute, newest lowest: did the watch move at all
+  uint16_t night_total_min;    // asleep minutes in the newest night record, as of its last wake
+  uint8_t  night_last_rhr;     // resting heart rate in that record
   uint32_t last_motion_min;    // last minute with any motion counts or steps
   uint32_t stale_since_min;    // when the current frozen stretch began
   uint8_t  rhr_hist[RHR_BINS]; // heart-rate histogram for the current sleep

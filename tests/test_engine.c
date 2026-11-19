@@ -103,8 +103,8 @@ static void test_not_worn(void) {
   // period (M_NOT_WORN_MIN) runs out.
   CHECK(e->st.flags & EF_AWAY_EST, "off the wrist in the day is estimated, not frozen");
   const int32_t away = engine_since_wake(e, CAT_AWAY);
-  // 3 points an hour at a reserve of 50, in proportion to the reserve, for about 3.5 hours.
-  const int32_t nominal = 1050 * before / M_LEVEL_REF100;
+  // 3 points an hour at a reserve of 50, scaled with the reserve, for about 3.5 hours.
+  const int32_t nominal = 1050 * (before + M_DRAIN_SOFT100) / (M_LEVEL_REF100 + M_DRAIN_SOFT100);
   CHECK(away >= nominal * 75 / 100 && away <= nominal * 110 / 100,
         "four hours off the wrist from %d should cost about %d/100, cost %d/100", before, (int)nominal,
         (int)away);
@@ -271,21 +271,21 @@ static void test_awake_terms(void) {
   engine_mark_viewed(e);
   hour_of(e, 40, 0, rhr + 3);
   const int32_t rest = engine_since_view(e, CAT_REST);
-  CHECK(rest >= 100 && rest <= 250 && engine_since_view(e, CAT_STRESS) == 0,
-        "an hour at resting heart rate should give back about 2 points, gave %d/100", (int)rest);
+  CHECK(rest >= 280 && rest <= 420 && engine_since_view(e, CAT_STRESS) == 0,
+        "an hour at resting heart rate should give back about 3.6 points, gave %d/100", (int)rest);
 }
 
 // Rates scale with the reserve, so the score balances instead of sticking at an end.
 static void test_self_balancing(void) {
   printf("self-balancing\n");
-  // Four hours flat out, harder than any ordinary day: close to empty, but not 0.
+  // Four hours flat out, harder than any ordinary day: all but empty.
   Engine *e = fresh(T0, T0 + 4 * DAY);
   run(e, T0 + 3 * DAY + 15 * 60);
   for (uint32_t t = e->st.last_min + 1; t <= T0 + 3 * DAY + 19 * 60; t++) {
     EngMinute m = { .flags = MF_VALID, .vmc = 6000, .steps = 150, .hr = 175 };
     engine_minute(e, t, &m);
   }
-  CHECK(e->st.reserve100 > 0 && e->st.reserve100 < 500, "four hours flat out should leave almost nothing, left %d/100",
+  CHECK(e->st.reserve100 < 300, "four hours flat out should leave almost nothing, left %d/100",
         e->st.reserve100);
   // Sleep then refills fastest from empty.
   const int low = e->st.reserve100;
@@ -311,7 +311,7 @@ static void test_self_balancing(void) {
     engine_minute(e, t, &m);
   }
   const int from_low = 2000 - e->st.reserve100;
-  CHECK(from_high > 3 * from_low && from_low > 100, "an hour on the feet: %d/100 from 90, %d/100 from 20",
+  CHECK(from_high > 2 * from_low && from_low > 200, "an hour on the feet: %d/100 from 90, %d/100 from 20",
         from_high, from_low);
 
   // A wrong starting value fades: two runs of the same days from 5 and 95 end up together.
@@ -326,6 +326,17 @@ static void test_self_balancing(void) {
   run(&b, T0 + 3 * DAY + 12 * 60);
   CHECK(abs(a.st.reserve100 - b.st.reserve100) <= 300, "after three days: %d vs %d", a.st.reserve100,
         b.st.reserve100);
+
+  // An hour on the feet from 10 still costs something, but a small share of the full rate.
+  Engine *q = fresh(T0, T0 + 4 * DAY);   // fresh() reuses one engine, so this comes last
+  run(q, T0 + 2 * DAY + 9 * 60);
+  q->st.reserve100 = 1000;
+  for (uint32_t t = q->st.last_min + 1; t <= T0 + 2 * DAY + 10 * 60; t++) {
+    EngMinute m = { .flags = MF_VALID, .vmc = 1500 };
+    engine_minute(q, t, &m);
+  }
+  CHECK(1000 - q->st.reserve100 >= 150 && 1000 - q->st.reserve100 <= 260,
+        "an hour on the feet from 10 should cost about 2 points, cost %d/100", 1000 - q->st.reserve100);
 }
 
 // Minutes asleep with a heart rate every tenth minute, or awake and still.
@@ -462,6 +473,7 @@ static void test_restless_sleep(void) {
     Engine *e = fresh(T0, T0 + 3 * DAY);
     run(e, T0 + DAY + 22 * 60);              // one night on record, so resting HR is known
     engine_set_windows(e, NULL, 0);
+    e->st.reserve100 = 3000;                 // the same bedtime level both times
     const int before = e->st.reserve100;
     for (uint32_t t = e->st.last_min + 1; t <= T0 + DAY + 26 * 60; t++) {
       EngMinute m = { .vmc = 5, .hr = (uint8_t)(e->base_rhr + (k ? 18 : 2)), .flags = MF_VALID | MF_ASLEEP };
@@ -471,7 +483,8 @@ static void test_restless_sleep(void) {
   }
   printf("  four hours asleep: +%d at resting heart rate, +%d at 18 bpm above\n", gain[0] / 100,
          gain[1] / 100);
-  CHECK(gain[0] >= 2400 && gain[0] <= 2900, "full-rate sleep gain %d/100", gain[0]);
+  // 7.2 points an hour at a reserve of 50; from 30 it starts at 1.4 times that and slows.
+  CHECK(gain[0] >= 2800 && gain[0] <= 3400, "full-rate sleep gain %d/100", gain[0]);
   CHECK(gain[1] * 2 < gain[0] && gain[1] > 0, "raised heart rate should more than halve it: %d", gain[1]);
 }
 
