@@ -48,6 +48,9 @@ static void inbox_received(DictionaryIterator *it, void *context) {
     const int count = t->length / (int)sizeof(Night);
     if (e->night_count == 0 && count > 0 && count <= NIGHTS_MAX &&
         t->length % sizeof(Night) == 0 && nights_plausible((const Night *)t->value->data, count)) {
+      // Stored directly: there is no baseline for the scorer to be overwriting, and it reads
+      // the nights afresh at the start of every run.
+      persist_write_data(PK_NIGHTS, t->value->data, (size_t)count * sizeof(Night));
       memcpy(e->nights, t->value->data, (size_t)count * sizeof(Night));
       e->night_count = (uint8_t)count;
       engine_rebase(e);

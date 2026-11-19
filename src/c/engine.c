@@ -75,14 +75,6 @@ static void night_upsert(Engine *e, const Night *n, bool replace_last) {
     at = e->night_count++;
   }
   e->nights[at] = *n;
-  // Earlier versions could leave two records for one day; keep only this one.
-  for (int i = e->night_count - 1; i >= 0; i--) {
-    if (i != at && e->nights[i].day == n->day) {
-      memmove(&e->nights[i], &e->nights[i + 1], sizeof(Night) * (size_t)(e->night_count - 1 - i));
-      e->night_count--;
-      if (i < at) at--;
-    }
-  }
   e->nights_dirty = true;
   engine_rebase(e);
 }
@@ -90,9 +82,19 @@ static void night_upsert(Engine *e, const Night *n, bool replace_last) {
 // ---- HRV window lookup ---------------------------------------------------------------------
 void engine_set_windows(Engine *e, const HrvWin *wins, uint16_t count) {
   e->wins = wins;
+  e->win_at = NULL;
   e->win_count = count;
   e->wc_from = 1;
   e->wc_until = 0;   // empty cache
+}
+
+void engine_set_window_source(Engine *e, EngWinAt at, uint16_t count) {
+  engine_set_windows(e, NULL, at ? count : 0);
+  e->win_at = at;
+}
+
+static void win_read(const Engine *e, uint16_t i, HrvWin *w) {
+  if (e->win_at) e->win_at(i, w); else *w = e->wins[i];
 }
 
 // Latest window at or before minute t. The replay moves forward in time, so the answer is
@@ -102,7 +104,9 @@ static bool win_latest(Engine *e, uint32_t t) {
     uint32_t best = 0, next = UINT32_MAX;
     e->wc_rmssd10 = 0;
     for (uint16_t i = 0; i < e->win_count; i++) {
-      const HrvWin *w = &e->wins[i];
+      HrvWin win;
+      win_read(e, i, &win);
+      const HrvWin *w = &win;
       const uint32_t wt = win_time(w);
       if (!w->rmssd10 || !wt) continue;
       if (wt <= t) {
@@ -160,6 +164,26 @@ static void curve_put(Engine *e, uint32_t t, bool worn) {
 }
 
 // ---- Main sleep ended ----------------------------------------------------------------------
+// Counts the asleep HRV windows in [from, to] whose RMSSD is at most `le`, and optionally
+// reports the smallest and largest of them.
+static int night_windows(const Engine *e, uint32_t from, uint32_t to, uint16_t le, uint16_t *min,
+                         uint16_t *max) {
+  int n = 0;
+  uint16_t lo = UINT16_MAX, hi = 0;
+  for (uint16_t i = 0; i < e->win_count; i++) {
+    HrvWin w;
+    win_read(e, i, &w);
+    const uint32_t wt = win_time(&w);
+    if (!w.rmssd10 || !win_asleep(&w) || wt < from || wt > to || w.rmssd10 > le) continue;
+    n++;
+    if (w.rmssd10 < lo) lo = w.rmssd10;
+    if (w.rmssd10 > hi) hi = w.rmssd10;
+  }
+  if (min) *min = lo;
+  if (max) *max = hi;
+  return n;
+}
+
 // A later sleep that belongs to the night already on record: the wearer woke for a while
 // (longer than M_SLEEP_MERGE_MIN) and went back to sleep.
 static bool night_continues(const EngineState *s) {
@@ -191,13 +215,15 @@ static void on_wake(Engine *e, uint32_t t) {
   }
   s->night_seg_start = s->sleep_start_min;
 
-  static uint16_t vals[128];
-  int n = 0;
-  for (uint16_t i = 0; i < e->win_count && n < 128; i++) {
-    const HrvWin *w = &e->wins[i];
-    const uint32_t wt = win_time(w);
-    if (w->rmssd10 && win_asleep(w) && wt >= s->night_sleep_start && wt <= t) {
-      vals[n++] = w->rmssd10;
+  // Median overnight RMSSD, found by bisection so no copy of the windows is needed (the
+  // worker has no room for one). With an even count it is the lower of the middle two.
+  uint16_t lo = 0, hi = 0;
+  const int n = night_windows(e, s->night_sleep_start, t, UINT16_MAX, &lo, &hi);
+  if (n >= M_MIN_NIGHT_WINDOWS) {
+    const int need = (n + 1) / 2;
+    while (lo < hi) {
+      const uint16_t mid = (uint16_t)(lo + (hi - lo) / 2);
+      if (night_windows(e, s->night_sleep_start, t, mid, NULL, NULL) >= need) hi = mid; else lo = (uint16_t)(mid + 1);
     }
   }
 
@@ -218,7 +244,7 @@ static void on_wake(Engine *e, uint32_t t) {
 
   Night night = {
     .day = (uint16_t)(((int32_t)t + e->tz_min) / 1440),
-    .rmssd10 = (n >= M_MIN_NIGHT_WINDOWS) ? median_u16(vals, n) : 0,
+    .rmssd10 = (n >= M_MIN_NIGHT_WINDOWS) ? lo : 0,
     .sleep_min = (uint16_t)clampi(s->night_prev_min + s->sleep_min, 0, UINT16_MAX),
     .rhr = rhr,
     .wins = (uint8_t)clampi(n, 0, 255),

@@ -8,9 +8,9 @@ update it when any of those change.
 
 ## Status
 
-Three nights and two days recorded on a Pebble Time 2 (PebbleOS 4.44.4). The scoring engine
-is unit-tested, the background worker sampled HRV through each night, and the app scored
-them from the watch's own history. The sleep recharge, then the daytime drain, then the shape
+Five nights and four days recorded on a Pebble Time 2 (PebbleOS 4.44.4). The scoring engine
+is unit-tested, and the background worker samples HRV and scores from the watch's own
+history every 15 minutes; the app shows the result. The sleep recharge, then the daytime drain, then the shape
 of the model (rates that scale with the reserve) were changed after comparing the score with
 Garmin Body Battery readings and with how the wearer felt. Not yet recorded: a quiet seated
 day, a long calm night, and battery cost.
@@ -38,14 +38,21 @@ demo's saved state would otherwise carry over.
 For debugging on the wrist, `ER_DEBUG=1 pebble build` makes the app log what the score was
 built from twelve seconds after every launch (state, nights, sleep sessions, the 24-hour
 curve, every stored HRV window, an hourly summary of the health history, and the last 46
-hours minute by minute), then start an HRV measurement and log the raw beat intervals. The
+hours minute by minute), then start an HRV measurement. The
 minute lines (`M`) are enough to replay a day through `engine.c` on a computer, which is how
 the rates were fitted. One trap: the sleep flag in those lines is only right for the most
 recent night, because the watch's sleep-session query returned only the latest sessions.
 After the dump the debug build flips one remembered sleep label, which makes the next
-minute's catch-up rebuild the last four hours from the anchor; the `state:` log line after
-it should match the one before. Reinstall the normal build afterwards; the debug build is
-not the store build. Read it with `--logs` straight after
+run rebuild the last four hours from the anchor; the `shown:` log line after it should match
+the one before, give or take the minute that passed. Reinstall the normal build afterwards;
+the debug build is not the store build.
+
+The worker logs nothing in these builds, because it has no memory to spare for the strings.
+`ER_WLOG=1` adds its burst and scoring lines and `ER_PPI=1` every raw beat interval. Either
+leaves the worker too little memory to score, so it reports that and the app scores instead:
+use them to watch the sampler. Every `worker scored` line in the app's log carries the
+worker's free heap before the run and the number of sleep sessions it was given (255: it
+abandoned the run). Read it with `--logs` straight after
 installing; set `PYTHONUNBUFFERED=1` when sending the tool's output to a file. In any build,
 a long press on Select asks the sampler for a measurement now instead of waiting for its
 schedule.
@@ -64,25 +71,52 @@ requests.
 
 | Path | Role |
 | --- | --- |
-| `worker_src/c/worker.c` | Background HRV sampler (FR1). 2.3 KiB of the worker's 10 KiB |
+| `worker_src/c/worker.c` | Background HRV sampler (FR1) and the scoring schedule. With the two files below it is 7.8 KiB of the worker's 10 KiB |
+| `worker_src/c/engine_w.c`, `score_w.c` | One-line wrappers that build `engine.c` and `score.c` into the worker |
 | `src/c/engine.c`, `engine.h` | Score engine (FR3). Pure C, no Pebble calls |
+| `src/c/score.c`, `score.h` | Scoring core: reads the watch's history, runs the engine, stores the result. Built into the worker and the app |
 | `src/c/model.h` | Every tunable number in the model |
-| `src/c/platform.c` | The one place that talks to health, storage and worker APIs |
+| `src/c/platform.c` | App only: settings, the worker's status, battery tracking, diagnostics |
 | `src/c/shared.h` | Storage keys and record formats shared with the worker |
 | `src/c/ui_main.c`, `ui_detail.c`, `ui_onboard.c` | Main screen, breakdown, first-launch notice |
 | `src/c/comm.c`, `src/pkjs/` | Settings page and baseline backup |
 | `src/c/demo_data.c` | Synthetic data, compiled only with `ER_DEMO` |
 | `tests/` | Host-side engine tests |
 
-`platform.c` also keeps two older copies of the engine state (`PK_ANCHOR`, `PK_NEXT`) and the
-sleep label each recent minute was scored with (`PK_SETTLE`), so the score can be rebuilt
-when Pebble Health labels a stretch as sleep after the fact. See "Sleep is labelled late" in
-[SCORING.md](SCORING.md).
+How the pieces fit:
 
-How the pieces fit: the worker only samples. It appends one RMSSD value per burst to a ring
-in persistent storage. The app does the scoring by replaying the watch's own per-minute
-health history from where it last stopped, so the answer is the same whether the app was open
-all day or is catching up after hours away.
+- **The worker samples and scores.** It appends one RMSSD value per burst to a ring in
+  persistent storage, and every 15 minutes (and whenever the app asks) it brings the score up
+  to date by replaying the watch's per-minute health history from where it last stopped.
+- **The app shows what is stored.** Each minute while open it asks the worker to score and
+  reloads the result. It scores for itself, with the same code, only when no worker is
+  running, when the worker reports that it could not do the run, and in `ER_DEMO` builds.
+- **Nothing is carried in memory between runs.** A run starts from what is stored and ends
+  by storing what it produced, so either process can do the next one.
+- **Late sleep labels.** `score.c` stores two older copies of the engine state (`PK_ANCHOR`,
+  `PK_NEXT`) and the sleep label each recent minute was scored with (`PK_SETTLE`), and
+  rebuilds from the anchor when a label changes. See "Sleep is labelled late" in
+  [SCORING.md](SCORING.md).
+
+### The worker's memory
+
+A worker has 10,240 bytes for code, data and heap together. Two things eat it:
+
+- **The code.** `arm-none-eabi-size build/emery/pebble-worker.elf` must stay under about
+  7.9 KiB; it is 7,789 bytes. That leaves a heap of 2,428.
+- **The firmware's health cache: 2,052 bytes of the worker's own heap**, allocated whenever
+  the process subscribes to health events, reads sleep sessions, or sums a health metric,
+  and freed only by `health_service_events_unsubscribe()`. With less than that free,
+  `health_service_activities_iterate` returns no sessions and no error.
+
+So a run is in two parts that never hold memory together. `score_prepare()` reads the sleep
+sessions into 96 bytes and has the cache released; then the engine (436 bytes), a 15-minute
+history buffer, one ring page and the label store are allocated, used and freed. The worker
+subscribes to health events only while a burst is running, and a burst goes without events
+for the length of a run.
+
+If the sessions cannot be read, the run is abandoned and nothing is stored: scoring on would
+turn the night into waking hours. That is what the first version did (score 51 to 38).
 
 ## PRD coverage
 
@@ -90,7 +124,7 @@ all day or is catching up after hours away.
 | --- | --- | --- |
 | FR1 | Burst sampler that always releases the sensor | Built; first windows taken on a watch |
 | FR2 | Store HRV windows, resting HR, timestamps for days | Built: 210 windows (about 2.5 days) and 14 nightly summaries |
-| FR3 | Engine recomputes on a fixed interval | Built: every minute while open, and a full catch-up on launch |
+| FR3 | Engine recomputes on a fixed interval | Built: every 15 minutes in the background worker, every minute while the app is open |
 | FR4 | Score, state, curve, updated time, confidence flag | Built |
 | FR5 | Not worn: freeze, mark stale, resume low confidence | Built and tested. One departure: in the waking day, time off the wrist drains at an assumed 3 points per hour instead of freezing (see the first day below). After a day or more off, the score restarts at the first-run value instead of resuming |
 | FR6 | Onboarding: estimate, not medical advice | Built |
@@ -99,11 +133,11 @@ all day or is catching up after hours away.
 | FR10 | Settings: units, intensity, reset baseline | Built; "units" is read as HRV units (ms or ln) |
 | FR9, FR11 to FR13 | Launcher glance, watchface, breathing, CSV export | Deferred, as in the PRD |
 
-Also in place: a small versioned score record for a later watchface (`PK_SCORE`), the baseline
+Also in place: the baseline
 backed up to the phone and restored if the watch loses it, a firmware check at launch, and a
 notice when another app's worker holds the single background slot.
 
-Storage used is about 2.5 KiB of the 4 KiB each app gets.
+Storage used is about 2.4 KiB of the 4 KiB each app gets.
 
 ## First wear (14 Nov 2026)
 
@@ -327,8 +361,46 @@ three times the sleep rate, which would break the nights that did agree. The wea
 judgement has now pulled both ways (73 was "a bit too high" on 16 Nov), so the next step is
 more days, not more tuning.
 
+## Scoring moved into the worker (19 Nov 2026)
+
+Version 0.5.0. Until now the worker only sampled and the app scored when opened. The score
+is now kept current in the background, which a watchface or launcher glance would need, and
+which removes the restart after two days unopened.
+
+Whether it would fit was the open question. What was measured on the watch:
+
+| Free heap when sleep sessions were read | Sessions returned | Heap afterwards |
+| --- | --- | --- |
+| 7,428 | 6 | 5,376 |
+| 3,004 | 6 | 952 |
+| 2,404 | 6 | 352 |
+| 2,004 | 0 | 2,004 |
+| 1,404 to 1,804 | 0 | unchanged |
+
+The first build fitted in 9.2 KiB and silently scored the night as awake, because the
+firmware needs 2,052 bytes of the worker's heap to return any sessions at all. Getting under
+that took: reading HRV windows through one ring page instead of loading all 210; finding
+the night's median by bisection instead of copying the windows; allocating the engine and
+every buffer for the run only; subscribing to health events only during a burst; dropping
+the worker's log strings and an unused score record; and an explicit guard that abandons a
+run with no sessions.
+
+Checked on the watch: a 36-hour rebuild by the worker (about 55 seconds, six sessions, last
+night credited); a forced rebuild giving the same state; a run during an HRV burst; a kept
+HRV window (54 beat pairs, RMSSD 41.5 ms) with the new subscription; and, with a logging
+build too big to score, the app taking over.
+
+Not yet checked: the score staying current over hours with the app closed (every test had
+the app open, which asks the worker each minute), and the battery cost of a run every 15
+minutes.
+
 ## Not done, or not known
 
+- **Background scoring over hours has not been observed.** The app logs how old the stored
+  score is at launch (`Ebb start: ... state N min old`); with the worker running it should
+  be under about 35 minutes.
+- **376 bytes is all the worker has to spare.** A firmware release with a larger health
+  cache would stop the worker scoring; the app would then score when opened, as before.
 - **The fit rests on two days.** A seated day, a long calm night and an evening at rest have
   not been recorded, and the reference and the wearer's own judgement disagreed on the
   second day.
@@ -338,8 +410,8 @@ more days, not more tuning.
 - **Battery:** the app reports sensor-on minutes (measured) and whole-watch drain per day
   (measured between launches). It does not convert sensor minutes into a percentage, because
   the sensor's current draw has not been measured.
-- **Baseline needs the app opened at least every two days or so.** Nights are summarised
-  when the app next runs; if the ring of windows has wrapped by then, that night counts
-  without HRV.
+- **Without the worker, the baseline needs the app opened at least every two days or so.**
+  Nights are then summarised when the app next runs; if the ring of windows has wrapped by
+  then, that night counts without HRV.
 - Interval pacing, the motion threshold and every weight are open; see
   [SCORING.md](SCORING.md).

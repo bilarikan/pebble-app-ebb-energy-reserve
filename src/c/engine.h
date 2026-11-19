@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include "shared.h"
 
-#define ENGINE_VERSION   8
+#define ENGINE_VERSION   9
 #define CURVE_SLOTS      96      // 24 h at 15 minutes
 #define CURVE_SLOT_MIN   15
 #define CURVE_NONE       255     // slot with no data (not worn)
@@ -40,6 +40,10 @@ typedef struct {
   uint8_t  hr;      // 0 = no reading this minute
   uint8_t  flags;   // MF_*
 } EngMinute;
+
+// Fetches HRV window i. Lets a caller with little memory read them from storage one page
+// at a time instead of holding them all.
+typedef void (*EngWinAt)(uint16_t i, HrvWin *out);
 
 // One night, as used for the personal baseline. 8 bytes.
 typedef struct __attribute__((packed)) {
@@ -97,7 +101,8 @@ typedef struct {
   uint8_t  base_nights;        // nights that carry HRV
 
   // Inputs set by the platform adapter
-  const HrvWin *wins;          // snapshot of the worker's ring, any order
+  const HrvWin *wins;          // HRV windows in any order, or...
+  EngWinAt win_at;             // ...a function that fetches window i (used when set)
   uint16_t win_count;
   int16_t  tz_min;             // local time offset from UTC, minutes
   uint8_t  max_hr;
@@ -112,6 +117,7 @@ typedef struct {
 void engine_reset(Engine *e, uint32_t start_min);
 void engine_rebase(Engine *e);
 void engine_set_windows(Engine *e, const HrvWin *wins, uint16_t count);
+void engine_set_window_source(Engine *e, EngWinAt at, uint16_t count);
 
 // Process one minute. Pass NULL when the watch has no record for it.
 void engine_minute(Engine *e, uint32_t t_min, const EngMinute *m);

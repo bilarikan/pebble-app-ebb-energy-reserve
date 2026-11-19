@@ -7,7 +7,7 @@ sleep. Nothing leaves the watch except a small backup to your own phone.
 
 It is an estimate, not medical advice, and it does not diagnose anything.
 
-This guide covers version 0.4.0. The app is an early release and the scoring is still being
+This guide covers version 0.5.0. The app is an early release and the scoring is still being
 tuned.
 
 ## Setting up
@@ -20,8 +20,9 @@ You need a Pebble Time 2 on PebbleOS 4.32 or later. No other Pebble has the sens
    from the Pebble app store.
 3. Open Ebb on the watch. Read the notice and press Select to continue. Pressing Back
    instead closes the app and nothing starts.
-4. If the watch asks whether Ebb may run in the background, say yes. Ebb measures HRV from
-   the background, and a Pebble runs only one app's background worker at a time.
+4. If the watch asks whether Ebb may run in the background, say yes. Ebb measures HRV and
+   keeps the score up to date from the background, and a Pebble runs only one app's
+   background worker at a time.
 
 ## The first few days
 
@@ -71,7 +72,7 @@ a delay.
 | --- | --- |
 | Select | Opens the breakdown |
 | Select, held | Takes an HRV measurement now. The watch buzzes once at the start and twice when done. Sit still for about a minute and a half |
-| Back | Leaves the app. Ebb keeps sampling in the background |
+| Back | Leaves the app. Ebb keeps measuring and scoring in the background |
 
 ## The breakdown
 
@@ -132,9 +133,10 @@ level, the small cost of being up, and does not mean you were tense.
   more after the fact. If you check the score in bed, it may not move at first; it is
   corrected the next time the app updates, and that includes time spent lying still that
   Pebble Health counts as sleep.
-- **Open the app at least once a day.** Ebb measures in the background but works out the
-  score when you open it, from the watch's own history. The watch keeps about two days of
-  that history, so leaving the app unopened for longer loses it and the score restarts.
+- **You do not need to keep opening it.** Ebb brings the score up to date every 15 minutes
+  in the background, so it is current when you look. This depends on Ebb holding the
+  watch's one background slot: if another app takes it, Ebb scores only while it is open,
+  and leaving it unopened for more than two days restarts the score.
 - **Wear the watch snug**, just above the wrist bone. A loose watch gives poor heart-rate
   and HRV readings, and Ebb throws poor readings away.
 - **Set your maximum heart rate** in the settings (see below). It decides how hard Ebb
@@ -174,7 +176,7 @@ Ebb does not measure while the watch is on its charger.
 | Resumed after a gap | Back on after an hour or more off | Nothing. It clears after a full night |
 | Restarted after time off | Back on after a day or more; the old score was dropped | Nothing. It clears after a full night |
 | HRV refused: heart rate on? | The watch turned down the HRV request | Switch on heart-rate monitoring in the watch's Health settings |
-| Sampler off: press Select | Background measuring is not running, usually because another app holds the watch's one background slot | Open Ebb again and accept the watch's prompt to let it run in the background |
+| Sampler off: press Select | Ebb is not running in the background, usually because another app holds the watch's one background slot. No HRV is measured, and the score is only brought up to date while Ebb is open | Open Ebb again and accept the watch's prompt to let it run in the background |
 | HRV needs PebbleOS 4.32+ | The watch's firmware is too old | Update the watch |
 | Updating... | Ebb is catching up on history since it was last open | Wait a few seconds |
 

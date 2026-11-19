@@ -3,16 +3,25 @@
 #include "app.h"
 #include "model.h"
 #include "platform.h"
+#include "score.h"
 
 #define STEPS_PER_SLICE 6   // hours of history handled before yielding to the event loop
+#define WORKER_WAIT_MS  5000   // how long "Updating..." waits for the worker before showing what is stored
 
+// The background worker does the scoring and this app shows the result. The app scores for
+// itself only when no worker is running (not yet started, refused, or another app's worker
+// holds the single slot) and in ER_DEMO builds.
 static Engine s_eng;
 static Settings s_set;
-static AppTimer *s_timer;
+static AppTimer *s_timer;        // next slice of a run this app is doing itself
+static AppTimer *s_wait;         // waiting for the worker to answer
 static bool s_updating;
+static bool s_local;             // the run in progress is this app's own
 static bool s_backup_sent;
 static bool s_viewed_once;       // the owner got past onboarding this launch
-static uint32_t s_first_view_min;   // fresh install: where "since you last looked" starts
+#ifdef ER_DEMO
+static uint32_t s_first_view_min;   // fresh demo state: where "since you last looked" starts
+#endif
 
 Engine *app_engine(void) { return &s_eng; }
 Settings *app_settings(void) { return &s_set; }
@@ -54,60 +63,130 @@ const char *band_name(int band) {
   return names[band < 0 ? 0 : (band > 3 ? 3 : band)];
 }
 
-// ---- Catching up with the watch's history ----------------------------------------------------
+// ---- Keeping the score current ----------------------------------------------------------------
 static void refresh_ui(void) {
   ui_main_refresh();
   ui_detail_refresh();
 }
 
-static void replay_finish(void) {
-  plat_replay_end(&s_eng);
-  s_updating = false;
-  if (s_first_view_min) {
-    engine_mark_viewed(&s_eng);
-    s_first_view_min = 0;
-  }
-  plat_save(&s_eng);
-  if (!s_backup_sent || s_eng.nights_dirty) {
+// The phone keeps a copy of the baseline: send it once per launch and whenever it changes.
+static void backup_if(bool changed) {
+  if (!s_backup_sent || changed) {
     comm_backup_nights();
     s_backup_sent = true;
   }
+}
+
+#ifndef ER_DEMO
+// Shows what the worker last stored.
+static void show_stored(void) {
+  Night before[NIGHTS_MAX];
+  const uint8_t count_before = s_eng.night_count;
+  memcpy(before, s_eng.nights, sizeof(before));
+  score_load(&s_eng);
+  s_updating = false;
+#ifdef ER_DEBUG
+  APP_LOG(APP_LOG_LEVEL_INFO, "shown: %d r%d tot %d %d %d %d %d", engine_score(&s_eng),
+          (int)s_eng.st.reserve100, (int)s_eng.st.tot[0], (int)s_eng.st.tot[1], (int)s_eng.st.tot[2],
+          (int)s_eng.st.tot[3], (int)s_eng.st.tot[4]);
+#endif
+  backup_if(count_before != s_eng.night_count || memcmp(before, s_eng.nights, sizeof(before)) != 0);
   refresh_ui();
 }
 
-static void replay_slice(void *context) {
+static void wait_done(void *context) {
+  s_wait = NULL;
+  show_stored();   // a long catch-up answers later; show what there is meanwhile
+}
+#endif
+
+static void local_finish(void) {
+  score_end(&s_eng);
+  s_local = false;
+  s_updating = false;
+#ifdef ER_DEMO
+  if (s_first_view_min) {
+    engine_mark_viewed(&s_eng);
+    s_first_view_min = 0;
+    score_store(&s_eng, false);
+  }
+#endif
+  backup_if(s_eng.nights_dirty);
+  refresh_ui();
+}
+
+static void local_slice(void *context) {
   s_timer = NULL;
   for (int i = 0; i < STEPS_PER_SLICE; i++) {
-    const bool more = plat_replay_step(&s_eng);
+    const bool more = score_step(&s_eng);
+#ifdef ER_DEMO
     if (s_first_view_min && s_eng.st.last_min >= s_first_view_min) {
       engine_mark_viewed(&s_eng);
       s_first_view_min = 0;
     }
+#endif
     if (!more) {
-      replay_finish();
+      local_finish();
       return;
     }
   }
-  s_timer = app_timer_register(2, replay_slice, NULL);
+  s_timer = app_timer_register(2, local_slice, NULL);
 }
 
-static void replay_start(void) {
-  if (s_updating) return;
+static void local_start(void) {
+  if (!score_prepare()) {
+    s_updating = false;
+    return;
+  }
   s_updating = true;
-  plat_replay_begin(&s_eng);
-  replay_slice(NULL);
+  s_local = true;
+  score_begin(&s_eng);
+  local_slice(NULL);
+}
+
+static void update_start(void) {
+  if (s_updating) return;
+#ifndef ER_DEMO
+  if (app_worker_is_running()) {
+    s_updating = true;
+    AppWorkerMessage msg = { 0 };
+    app_worker_send_message(WMSG_SCORE_NOW, &msg);
+    s_wait = app_timer_register(WORKER_WAIT_MS, wait_done, NULL);
+    return;
+  }
+#endif
+  local_start();
 }
 
 // ---- Events --------------------------------------------------------------------------------
 static void tick_handler(struct tm *tick_time, TimeUnits changed) {
-  replay_start();
+  update_start();
 }
 
 static void worker_message(uint16_t type, AppWorkerMessage *message) {
   if (type == WMSG_WINDOW_DONE) {
     ui_main_measure_done();
-    replay_start();
+    update_start();
   }
+#ifndef ER_DEMO
+  if (type == WMSG_SCORED) {
+    // data1: the worker's free memory during the run; data2: sleep sessions it was given,
+    // 255 if it had to abandon the run.
+    APP_LOG(APP_LOG_LEVEL_INFO, "worker scored %d, heap %d, sessions %d", (int)message->data0,
+            (int)message->data1, (int)message->data2);
+  }
+  if (type == WMSG_SCORED && !s_local) {
+    if (s_wait) {
+      app_timer_cancel(s_wait);
+      s_wait = NULL;
+    }
+    if (message->data2 == 255) {
+      local_start();   // the worker could not do the run and stored nothing: do it here
+    } else {
+      show_stored();
+    }
+  }
+#endif
 }
 
 void app_settings_changed(void) {
@@ -117,14 +196,18 @@ void app_settings_changed(void) {
 }
 
 void app_reset_baseline(void) {
+  // The one case where the app writes a scorer's record: a deliberate reset from the phone.
+  // The worker reads the nights afresh at the start of every run.
   engine_clear_baseline(&s_eng);
-  plat_save_nights(&s_eng);
-  s_eng.nights_dirty = false;   // the phone dropped its copy when it sent the reset
+  s_eng.nights_dirty = false;      // the phone dropped its copy when it sent the reset
+  persist_delete(PK_NIGHTS);
   refresh_ui();
 }
 
 void app_nights_restored(void) {
-  plat_save_nights(&s_eng);
+#ifndef ER_DEMO
+  update_start();
+#endif
   refresh_ui();
 }
 
@@ -145,7 +228,7 @@ static void debug_timer(void *context) {
     app_timer_register(250, debug_timer, NULL);
     return;
   }
-  plat_debug_force_rebuild(&s_eng);   // the next minute's catch-up rebuilds; compare its log
+  score_debug_flip_label(&s_eng);   // the next run rebuilds; its result should match
 #endif
   ui_main_measure_now();
 }
@@ -154,17 +237,15 @@ static void debug_timer(void *context) {
 static void init(void) {
   const bool had_state = persist_exists(PK_ENGINE);
   plat_load(&s_eng, &s_set);
-  if (!had_state) {
 #ifdef ER_DEMO
-    s_first_view_min = plat_now_min() - 4 * 60;   // so the demo has a reason line to show
-#else
-    s_first_view_min = UINT32_MAX;                // marked when the first catch-up finishes
+  if (!had_state) s_first_view_min = plat_now_min() - 4 * 60;   // so the demo has a reason line
 #endif
-  }
 
   const WatchInfoVersion fw = watch_info_get_firmware_version();
-  APP_LOG(APP_LOG_LEVEL_INFO, "Ebb start: PebbleOS %d.%d.%d, %s state, %d nights", (int)fw.major,
-          (int)fw.minor, (int)fw.patch, had_state ? "saved" : "fresh", (int)s_eng.night_count);
+  // How old the stored score is on launch shows whether the worker has been keeping it up.
+  APP_LOG(APP_LOG_LEVEL_INFO, "Ebb start: PebbleOS %d.%d.%d, %s state %d min old, %d nights",
+          (int)fw.major, (int)fw.minor, (int)fw.patch, had_state ? "saved" : "fresh",
+          (int)(plat_now_min() - s_eng.st.last_min), (int)s_eng.night_count);
 
   comm_init();
   app_worker_message_subscribe(worker_message);
@@ -175,7 +256,7 @@ static void init(void) {
     ui_onboard_push();
   }
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
-  replay_start();
+  update_start();
 #ifdef ER_DEBUG
   // A little after launch, so a log session attached by the installer catches it.
   app_timer_register(12000, debug_timer, NULL);
@@ -186,10 +267,18 @@ static void deinit(void) {
   tick_timer_service_unsubscribe();
   app_worker_message_unsubscribe();
   if (s_timer) app_timer_cancel(s_timer);
-  if (s_updating) plat_replay_end(&s_eng);
+  if (s_wait) app_timer_cancel(s_wait);
+  if (s_local) score_end(&s_eng);
   // The next launch explains what changed since this one.
+#ifdef ER_DEMO
   if (s_viewed_once && !s_first_view_min) engine_mark_viewed(&s_eng);
-  plat_save(&s_eng);
+  score_store(&s_eng, true);
+#else
+  if (s_viewed_once) {
+    const uint32_t shown = s_eng.st.last_min;
+    persist_write_data(PK_VIEW, &shown, sizeof(shown));
+  }
+#endif
 }
 
 int main(void) {

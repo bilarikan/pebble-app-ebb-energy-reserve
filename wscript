@@ -3,8 +3,11 @@
 #
 # ER_DEMO=1 pebble build   -> compiles the synthetic-data adapter so the app can be
 #                             exercised in the emulator, which has no health data.
-# ER_DEBUG=1 pebble build  -> on-wrist debugging: starts an HRV measurement a few seconds
-#                             after every launch, so its log can be read straight after install.
+# ER_DEBUG=1 pebble build  -> on-wrist debugging: logs what the score was built from and
+#                             starts an HRV measurement a few seconds after every launch.
+# ER_WLOG=1 pebble build   -> the worker logs its bursts and scoring runs. ER_PPI=1 adds every
+#                             raw beat-to-beat interval. Both cost worker memory that
+#                             scoring needs, so use them to watch the sampler only.
 #
 import os
 import os.path
@@ -36,6 +39,10 @@ def build(ctx):
             ctx.env.append_value('DEFINES', 'ER_DEMO=1')
         if os.environ.get('ER_DEBUG') == '1':
             ctx.env.append_value('DEFINES', 'ER_DEBUG=1')
+        if os.environ.get('ER_PPI') == '1':
+            ctx.env.append_value('DEFINES', 'ER_PPI=1')
+        if os.environ.get('ER_WLOG') == '1':
+            ctx.env.append_value('DEFINES', 'ER_WLOG=1')
         app_elf = '{}/pebble-app.elf'.format(ctx.env.BUILD_DIR)
         ctx.pbl_build(source=ctx.path.ant_glob('src/c/**/*.c'), target=app_elf, bin_type='app')
 

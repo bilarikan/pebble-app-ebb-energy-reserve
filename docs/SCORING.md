@@ -158,8 +158,8 @@ What counts as one night:
   charge is taken at the final wake.
 
 **Sleep is labelled late.** Pebble Health decides that a stretch was sleep an hour or more
-after it began. The app scores up to the present whenever it is open, so it may already have
-scored those minutes as awake. It therefore keeps the engine state from at least four hours
+after it began. Scoring runs every 15 minutes, and every minute while the app is open, so
+those minutes have usually been scored as awake already. The scorer therefore keeps the engine state from at least four hours
 back and the sleep label each minute since was scored with; when a label changes, it rebuilds
 the score from that state. Opening the app during the night does not cost the sleep around
 it. A label that changes more than four hours after the fact is not picked up.
@@ -190,7 +190,7 @@ rate) and the baseline is recomputed. There is one record per night. A night nee
 | Worn again after a day or more off | Score restarts at 40, the first-run value; the baseline is kept | "Restarted after time off", LOW CONF until the next full night |
 | Worn again after a shorter time off | Score resumes from where it was | Nothing |
 | A night with no usable HRV, once calibrated | Night is recorded without HRV | LOW CONF until the next night with HRV |
-| More than 48 hours since the app last ran | The last 48 hours are replayed; the stretch before them is skipped and counts as time off the wrist, so a day or more of it restarts the score | As for time off of that length |
+| More than 48 hours since the score was last brought up to date (the background worker not running and the app not opened) | The last 48 hours are replayed; the stretch before them is skipped and counts as time off the wrist, so a day or more of it restarts the score | As for time off of that length |
 
 Sleep on its own does not count as worn: Pebble's sleep detection is motion-based, and a
 watch lying on a table can look asleep. Motion counts tell the two apart, which matters

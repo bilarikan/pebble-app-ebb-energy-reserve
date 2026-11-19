@@ -1,15 +1,29 @@
-// Background HRV sampler (PRD FR1).
+// Background HRV sampler (PRD FR1) and scorer.
 //
 // The firmware collects HRV only while a process holds an HRV sample period, so this worker
 // owns the sampling schedule. It holds the sensor on in short bursts, turns a burst's
 // beat-to-beat intervals into one RMSSD value, appends it to a ring in persistent storage,
-// and always releases the sensor afterwards. Scoring happens in the app, not here: a worker
-// has 10 KiB for code and data together.
+// and always releases the sensor afterwards.
+//
+// It also keeps the score current, every quarter of an hour and whenever the app asks, so
+// the stored score is up to date without the app being opened.
+//
+// Memory is the constraint. A worker has 10 KiB for code, data and heap together, and the
+// firmware takes 2052 bytes of that heap for a health cache whenever this process is
+// subscribed to health events or reads sleep sessions. So:
+//   - health events are subscribed to only while a burst is running;
+//   - everything scoring needs is allocated for the run and freed after it, and never while
+//     the cache is held (see score_prepare() in score.c);
+//   - the static footprint must stay under about 7.9 KiB (`arm-none-eabi-size` on
+//     build/emery/pebble-worker.elf). Mind anything added here, to engine.c or to score.c.
 //
 // Only this worker sets sample periods. The app and its worker share one sensor subscription
 // (it is keyed by app, not by process), so a second owner could cancel a burst in progress.
 #include <pebble_worker.h>
 #include "../../src/c/shared.h"
+#ifndef ER_DEMO
+#include "../../src/c/score.h"
+#endif
 
 // ---- Sampling plan, indexed by Settings.intensity --------------------------------------
 static const uint8_t NIGHT_INTERVAL_MIN[] = {20, 10, 5};
@@ -51,11 +65,21 @@ static AppTimer *s_timer;
 static int32_t s_prev_steps = -1;
 static uint8_t s_still;
 static uint8_t s_backoff = 1;
-static HrvWin s_page[RING_PER_KEY];   // one ring key, reused for read-modify-write
+static void health_handler(HealthEventType event, void *context);
+
+// Log lines cost code and string space the worker cannot spare, so they are built only with
+// ER_WLOG=1. That build is for watching the sampler: it may leave too little memory for
+// scoring, which then skips its runs rather than score wrongly.
+#ifdef ER_WLOG
+#define WLOG(...) APP_LOG(APP_LOG_LEVEL_INFO, __VA_ARGS__)
+#else
+#define WLOG(...) do { } while (0)
+#endif
 
 // Raw intervals to the log, eight to a line, for checking the sensor's output by hand.
-// Only in ER_DEBUG builds.
-#ifdef ER_DEBUG
+// Only in ER_PPI builds (ER_PPI=1 pebble build): with scoring in the worker there is no
+// room for it in an ordinary debug build.
+#ifdef ER_PPI
 #define RAW_PER_LINE 8
 static uint16_t s_raw[RAW_PER_LINE];
 static uint8_t s_raw_n;
@@ -91,15 +115,77 @@ static uint32_t isqrt32(uint32_t v) {
   return r;
 }
 
+// One ring key is read, changed and written back. The page is borrowed from the heap; if
+// there is none to spare the window is lost, which the next burst makes up for.
 static void ring_append(HrvWin w) {
   const uint32_t key = PK_RING0 + s_hdr.head / RING_PER_KEY;
-  memset(s_page, 0, sizeof(s_page));
-  persist_read_data(key, s_page, sizeof(s_page));
-  s_page[s_hdr.head % RING_PER_KEY] = w;
-  persist_write_data(key, s_page, sizeof(s_page));
+  HrvWin *page = malloc(sizeof(HrvWin) * RING_PER_KEY);
+  if (!page) return;
+  memset(page, 0, sizeof(HrvWin) * RING_PER_KEY);
+  persist_read_data(key, page, sizeof(HrvWin) * RING_PER_KEY);
+  page[s_hdr.head % RING_PER_KEY] = w;
+  persist_write_data(key, page, sizeof(HrvWin) * RING_PER_KEY);
+  free(page);
   s_hdr.head = (s_hdr.head + 1) % RING_CAP;
   if (s_hdr.count < RING_CAP) s_hdr.count++;
 }
+
+// ---- Scoring -------------------------------------------------------------------------------
+#ifndef ER_DEMO
+#define SCORE_EVERY_MIN 15
+static Engine *s_eng;     // allocated for a run
+static AppTimer *s_score_timer;
+static uint8_t s_ticks;   // minutes since the worker started, up to 255
+
+// Called by score_prepare() once it has the sleep sessions: unsubscribing is the only way to
+// make the firmware free its health cache. If a burst is running it goes without events
+// until the run ends (subscribing brings the cache straight back), which costs it a beat or
+// two on an ordinary run.
+void worker_drop_health_cache(void) {
+  health_service_events_unsubscribe();
+}
+
+// `done` false: the run could not be made and nothing was stored. The app sees 255 sessions
+// and, if it is open, scores for itself.
+static void score_report(uint16_t score, bool done) {
+  if (s_b.active) health_service_events_subscribe(health_handler, NULL);
+  AppWorkerMessage msg = {
+    .data0 = score,
+    .data1 = score_run_heap(),
+    .data2 = done ? score_run_sessions() : 255,
+  };
+  app_worker_send_message(WMSG_SCORED, &msg);   // nobody listening unless the app is open
+}
+
+static void score_finish(void) {
+  score_end(s_eng);
+  const uint16_t score = (uint16_t)engine_score(s_eng);
+  free(s_eng);
+  s_eng = NULL;
+  score_report(score, true);
+}
+
+// One piece of history per timer, so sampling events are handled in between.
+static void score_slice(void *context) {
+  s_score_timer = NULL;
+  if (score_step(s_eng)) {
+    s_score_timer = app_timer_register(5, score_slice, NULL);
+    return;
+  }
+  score_finish();
+}
+
+static void score_run(void) {
+  if (s_eng) return;   // a run is in progress
+  if (score_prepare()) s_eng = malloc(sizeof(Engine));
+  if (!s_eng) {
+    score_report(0, false);
+    return;
+  }
+  score_begin(s_eng);
+  score_slice(NULL);
+}
+#endif
 
 // Release the sensor. Both periods are cleared so nothing keeps the green LED running.
 static void sensor_release(void) {
@@ -112,6 +198,7 @@ static void burst_finish(void) {
   s_b.active = false;
   if (s_timer) { app_timer_cancel(s_timer); s_timer = NULL; }
   sensor_release();
+  health_service_events_unsubscribe();   // also hands back the firmware's health cache
 
   const time_t now = time(NULL);
   const uint32_t on_s = (uint32_t)(now - s_b.start);
@@ -159,7 +246,7 @@ static void burst_finish(void) {
   // The watch truncates long log lines, so this one is terse:
   // seconds on, seconds to first interval, off-wrist reports, pairs kept, intervals rejected.
   raw_flush();
-  APP_LOG(APP_LOG_LEVEL_INFO, "burst end: on %d first %d offw %d ok %d rej %d rep %d rmssd %d.%d %s",
+  WLOG("burst end: on %d first %d offw %d ok %d rej %d rep %d rmssd %d.%d %s",
           (int)on_s, s_b.seen ? (int)(s_b.first - s_b.start) : -1, (int)s_b.off_wrist, (int)s_b.pairs,
           (int)s_b.artifacts, (int)s_b.repeats, (int)(rmssd10 / 10), (int)(rmssd10 % 10),
           valid ? "kept" : "dropped");
@@ -194,7 +281,7 @@ static void burst_start(bool asleep, uint8_t intensity, int32_t steps) {
   if (!health_service_set_hrv_sample_period(1)) {
     s_hdr.status = (s_hdr.status & ~WS_HRV_OK) | WS_HRV_REFUSED;
     save_hdr();
-    APP_LOG(APP_LOG_LEVEL_WARNING, "HRV sampling refused by the firmware");
+    WLOG("HRV sampling refused by the firmware");
     AppWorkerMessage none = { 0 };
     app_worker_send_message(WMSG_WINDOW_DONE, &none);   // so a waiting app stops waiting
     return;
@@ -202,6 +289,7 @@ static void burst_start(bool asleep, uint8_t intensity, int32_t steps) {
   s_hdr.status = (s_hdr.status & ~WS_HRV_REFUSED) | WS_HRV_OK;
   save_hdr();
 
+  health_service_events_subscribe(health_handler, NULL);
   s_b = (Burst) {
     .active = true,
     .asleep = asleep,
@@ -210,7 +298,7 @@ static void burst_start(bool asleep, uint8_t intensity, int32_t steps) {
     .steps_start = steps,
   };
   s_timer = app_timer_register(ABORT_S * 1000, burst_timer, NULL);
-  APP_LOG(APP_LOG_LEVEL_INFO, "burst start: %s, %d s window", asleep ? "asleep" : "awake",
+  WLOG("burst start: %s, %d s window", asleep ? "asleep" : "awake",
           (int)s_b.window_s);
 }
 
@@ -258,6 +346,12 @@ static void health_handler(HealthEventType event, void *context) {
 }
 
 static void tick_handler(struct tm *tm, TimeUnits changed) {
+#ifndef ER_DEMO
+  // Not in the first minute: the app may be finishing a run of its own from before the
+  // worker started.
+  if (s_ticks < 255) s_ticks++;
+  if (s_ticks == 2 || (s_ticks > 2 && tm->tm_min % SCORE_EVERY_MIN == 0)) score_run();
+#endif
   const uint16_t day = (uint16_t)(tm->tm_year * 366 + tm->tm_yday);
   if (day != s_hdr.day) {
     s_hdr.sensor_s_yday = (uint16_t)(day == s_hdr.day + 1 ? s_hdr.sensor_s_today : 0);
@@ -297,6 +391,12 @@ static void tick_handler(struct tm *tm, TimeUnits changed) {
 }
 
 static void app_message(uint16_t type, AppWorkerMessage *message) {
+#ifndef ER_DEMO
+  if (type == WMSG_SCORE_NOW) {
+    score_run();
+    return;
+  }
+#endif
   if (type != WMSG_MEASURE_NOW || s_b.active) return;
   Settings set = { .intensity = INTENSITY_BALANCED };
   persist_read_data(PK_SETTINGS, &set, sizeof(set));
@@ -315,16 +415,17 @@ int main(void) {
   // If the worker was killed mid-burst the periods may still be set: clear them first.
   sensor_release();
 
-  const bool subscribed = health_service_events_subscribe(health_handler, NULL);
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   app_worker_message_subscribe(app_message);
-  APP_LOG(APP_LOG_LEVEL_INFO, "sampler started, health events %s, %d windows stored",
-          subscribed ? "on" : "UNAVAILABLE", (int)s_hdr.count);
+  WLOG("sampler started, %d windows stored", (int)s_hdr.count);
   worker_event_loop();
 
   burst_finish();
   sensor_release();
+#ifndef ER_DEMO
+  if (s_score_timer) app_timer_cancel(s_score_timer);
+  if (s_eng) score_end(s_eng);   // keep what was scored so far
+#endif
   tick_timer_service_unsubscribe();
-  health_service_events_unsubscribe();
   return 0;
 }

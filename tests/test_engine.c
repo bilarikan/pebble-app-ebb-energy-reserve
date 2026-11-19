@@ -392,20 +392,6 @@ static void test_split_night(void) {
   feed(e, T0 + DAY + 15 * 60, false);
   CHECK(e->night_count == 1 && e->nights[0].sleep_min == 330 && e->st.wake_min == wake,
         "a nap leaves the night alone: %d nights, %d min", e->night_count, e->nights[0].sleep_min);
-
-  // Two records for one day, left by an earlier version, collapse when that day is seen again.
-  e = fresh(T0, T0 + 2 * DAY);
-  engine_set_windows(e, NULL, 0);
-  const uint16_t day = (uint16_t)((T0 + DAY) / 1440);
-  e->nights[0] = (Night){ .day = (uint16_t)(day - 1), .sleep_min = 400, .rhr = 60 };
-  e->nights[1] = (Night){ .day = day, .sleep_min = 228, .rhr = 63 };
-  e->nights[2] = (Night){ .day = day, .sleep_min = 181, .rhr = 56 };
-  e->night_count = 3;
-  feed(e, T0 + 21 * 60, false);
-  feed(e, T0 + DAY + 5 * 60, true);
-  feed(e, T0 + DAY + 6 * 60, false);
-  CHECK(e->night_count == 2 && e->nights[1].day == day && e->nights[1].sleep_min == 480,
-        "duplicates collapse: %d nights, last %d min", e->night_count, e->nights[1].sleep_min);
 }
 
 static void test_calibration(void) {

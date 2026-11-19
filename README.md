@@ -21,8 +21,9 @@ Emulator screenshots. The first three use synthetic demo data.
   looked, a 24-hour curve, last-updated time and a confidence flag.
 - **Select:** breakdown of every term behind the score, last night's inputs, your baseline,
   and what the sampler is doing (windows kept, sensor-on minutes, watch battery use).
-- **Background sampler:** measures HRV in short bursts while you are asleep or still, then
-  releases the sensor.
+- **In the background:** measures HRV in short bursts while you are asleep or still, then
+  releases the sensor, and brings the score up to date every 15 minutes, so it is current
+  when you open the app.
 - **Phone settings:** sampling intensity, HRV units, maximum heart rate, reset baseline.
 
 How to use it and read the screens is in the [user guide](docs/USER-GUIDE.md). The scoring

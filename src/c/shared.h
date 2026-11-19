@@ -8,6 +8,9 @@
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
+#ifndef MAX
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
 #ifndef ABS
 #define ABS(a) ((a) < 0 ? -(a) : (a))
 #endif
@@ -17,15 +20,19 @@
 #define PK_SETTINGS   1    // Settings      (app writes, worker reads)
 #define PK_WHDR       2    // WorkerHdr     (worker writes, app reads)
 #define PK_RING0      10   // HRV window ring, keys PK_RING0 .. PK_RING0 + RING_KEYS - 1 (worker)
-#define PK_ENGINE     20   // EngineState   (app)
-#define PK_SCORE      21   // ScoreRecord   (app) small versioned record for future readers
-#define PK_CURVE      22   // 24 h curve    (app)
-#define PK_NIGHTS     23   // nightly summaries, the personal baseline (app)
+#define PK_ENGINE     20   // EngineState   (scorer: the worker, or the app when no worker runs)
+// 21 was a small score record for other readers; storage is per app, so nothing could read it.
+#define PK_CURVE      22   // 24 h curve    (scorer)
+#define PK_NIGHTS     23   // nightly summaries, the personal baseline (scorer)
 #define PK_ONBOARDED  24   // onboarding notice acknowledged (app)
 #define PK_BATT       25   // BattTrack     (app)
-#define PK_ANCHOR     26   // EngineState from at least four hours ago (app)
-#define PK_SETTLE     27   // sleep labels recent minutes were scored with (app)
-#define PK_NEXT       28   // EngineState that becomes the anchor once it is old enough (app)
+#define PK_ANCHOR     26   // EngineState from at least four hours ago (scorer)
+#define PK_SETTLE     27   // sleep labels recent minutes were scored with (scorer)
+#define PK_NEXT       28   // EngineState that becomes the anchor once it is old enough (scorer)
+// Left by the app for whichever process does the scoring, which alone writes the engine's
+// records (PK_ENGINE, PK_CURVE, PK_NIGHTS, PK_ANCHOR, PK_NEXT, PK_SETTLE). The one
+// exception is a baseline reset or restore from the phone, where the app writes PK_NIGHTS.
+#define PK_VIEW       29   // uint32: the last minute the owner was shown (app)
 
 // ---- Settings ------------------------------------------------------------------------------
 #define SETTINGS_VERSION 1
@@ -80,23 +87,8 @@ typedef struct __attribute__((packed)) {
   uint8_t  last_artifacts;   // rejected intervals in the last burst
 } WorkerHdr;
 
-// ---- Public score record -------------------------------------------------------------------
-// Kept deliberately small and versioned so a later watchface or relay can read it.
-#define SCORE_VERSION 1
-enum {
-  SF_STALE       = 1 << 0,   // not worn: score is frozen
-  SF_LOW_CONF    = 1 << 1,   // resumed after a gap, or no HRV data
-  SF_CALIBRATING = 1 << 2,   // personal baseline not established yet
-};
-
-typedef struct __attribute__((packed)) {
-  uint8_t  version;
-  uint8_t  score;         // 0..100
-  uint8_t  band;          // 0 very low, 1 low, 2 medium, 3 high
-  uint8_t  flags;         // SF_*
-  uint32_t updated_utc;
-} ScoreRecord;
-
 // Messages between the app and its worker.
 #define WMSG_WINDOW_DONE 1   // worker -> app: a burst finished
 #define WMSG_MEASURE_NOW 2   // app -> worker: start a burst now, whatever the schedule says
+#define WMSG_SCORE_NOW   3   // app -> worker: bring the score up to date now
+#define WMSG_SCORED      4   // worker -> app: a scoring run finished, the stored state is new

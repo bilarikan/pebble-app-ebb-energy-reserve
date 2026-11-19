@@ -1,6 +1,5 @@
-// Platform adapter: every call into PebbleOS health, storage and worker APIs that the
-// score depends on goes through this file, so a change to the (new, Time 2-only) HRV API
-// touches one place. With ER_DEMO it serves synthetic data instead.
+// App-side platform code: settings, the background worker's status, battery tracking and
+// diagnostics. The scoring is in score.c, which the worker shares.
 #pragma once
 #include <pebble.h>
 #include "engine.h"
@@ -15,16 +14,8 @@ typedef struct __attribute__((packed)) {
   uint16_t span_h;         // hours the rate was measured over
 } BattTrack;
 
-void plat_load(Engine *e, Settings *settings);
-void plat_save(Engine *e);
+void plat_load(Engine *e, Settings *settings);   // settings, the stored score, battery tracking
 void plat_save_settings(const Settings *settings);
-void plat_save_nights(const Engine *e);
-
-// Catch the engine up with the watch's per-minute history. Call begin once, then step until
-// it returns false, then end. Each step handles at most an hour of history.
-void plat_replay_begin(Engine *e);
-bool plat_replay_step(Engine *e);
-void plat_replay_end(Engine *e);
 
 uint32_t plat_now_min(void);
 
@@ -40,12 +31,11 @@ typedef enum {
 void plat_sampler_start(void);
 SamplerState plat_sampler_state(void);
 bool plat_worker_hdr(WorkerHdr *out);
-uint16_t plat_windows_24h(void);         // valid HRV windows in the last 24 h, as of the last replay
+uint16_t plat_windows_24h(void);         // valid HRV windows in the last 24 h
 
 const BattTrack *plat_batt(void);
 void plat_log_diagnostics(void);          // what the health service gives this app, to the log
 #if defined(ER_DEBUG) && !defined(ER_DEMO)
 // Logs what the score was built from. Call with step 0, 1, 2... until it returns false.
 bool plat_debug_dump(const Engine *e, int step);
-void plat_debug_force_rebuild(const Engine *e);
 #endif
