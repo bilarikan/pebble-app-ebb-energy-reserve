@@ -15,7 +15,7 @@ of the model (rates that scale with the reserve) were changed after comparing th
 Garmin Body Battery readings and with how the wearer felt. Not yet recorded: a quiet seated
 day, a long calm night, and battery cost.
 
-Version 0.3.1 is on the Pebble app store as
+Version 0.4.0 is on the Pebble app store as
 [Ebb: Body Energy Reserve](https://apps.repebble.com/afae45fe97914bc5b35d3711), marked as an
 early release. To publish an update, raise `version` in `package.json`, build, and run
 `pebble publish`; the icons and screenshots used for the listing are in `store/`.
