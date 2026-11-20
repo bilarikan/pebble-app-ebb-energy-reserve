@@ -71,7 +71,7 @@ matches a minute is the one that applies.
 
 | Term | Applies when | Rate |
 | --- | --- | --- |
-| Recharge, asleep | Pebble Health says asleep | `+7.2 x q`, and x 1.2 in restful sleep |
+| Recharge, asleep | Pebble Health says asleep | `+8.4 x q`, and x 1.2 in restful sleep |
 | Activity drain `d_a` | 20+ steps in the minute, or `i` at least 0.35 with clear motion | `-(5.4 + 42 x i^2)` |
 | Light movement (counted as activity) | 600+ motion counts in the minute, or within 10 minutes of the row above | `-4.8` |
 | Stress drain `d_s` | Still, and heart rate more than 6 bpm above resting, or HRV low | `-(1.8 + 9.0 x s)` |
@@ -133,9 +133,9 @@ Where it settles, by the table rates added up over a day and a night:
 
 | Day costs | Night gives | Evening low | Morning high |
 | --- | --- | --- | --- |
-| 84 (a workout, a commute, an active evening) | 46 (a broken 7 hours) | about 2 | about 58 |
-| 55 | 60 (a calm 8 hours) | about 24 | about 77 |
-| 35 (a quiet day) | 65 (a long calm night) | about 44 | about 85 |
+| 84 (a workout, a commute, an active evening) | 54 (a broken 7 hours) | about 4 | about 64 |
+| 55 | 70 (a calm 8 hours) | about 26 | about 82 |
+| 35 (a quiet day) | 76 (a long calm night) | about 46 | about 88 |
 
 The first row is the wearer's heaviest recorded day repeated; the others are worked out from
 the formula. Mornings above 90 would need several easy days and long nights in a row.
@@ -147,7 +147,7 @@ by heart rate and each overnight HRV window, and R0 is simply its value when the
 sleep ends. A longer night gives more minutes of refill; a heart rate near resting and HRV at
 or above baseline give more per minute; and a lower starting point gives more, because
 recharge scales with what is missing. A full-quality 8-hour night takes a reserve of 20 to
-about 76, and one of 60 to about 88.
+about 80, and one of 60 to about 90.
 
 What counts as one night:
 
@@ -234,7 +234,9 @@ same totals since the morning charge.
   judgement, which did not always agree with each other. A quiet desk day and a long calm
   night have not been recorded yet.
 - **The top of the scale is hard to reach.** Recharge slows as the reserve fills, so a
-  wearer used to seeing 100 after a good night elsewhere will see 75 to 85 here.
+  wearer used to seeing 95 or 100 after a good night elsewhere will see 70 to 85 here. On
+  one good night (7.5 hours, HRV above baseline) the reference went from 30 to 95 and this
+  model from 9 to 65, or 71 at the present rate.
 - **The scaling is a simple one that balances**: straight proportion for recharge, softened
   proportion for drains. Nothing says the body follows it. The softening was set by how the
   score felt to the wearer over two further days (too slow to fall once low), not by a
@@ -242,6 +244,10 @@ same totals since the morning charge.
 - **Quiet rest counts for less than a reference device gives it.** Lying awake with a heart
   rate at its sleeping level recharges at half the sleep rate. One reference reading rose 15
   points over 2 hours 45 minutes of that; this model gives about 10 at a reserve of 50.
+- **A raised heart rate early in the night costs recharge.** On the same good night the
+  first four hours ran at about 70 bpm against a resting 58 and were credited at about two
+  thirds of the full rate. Whether that is right, or just how this wearer's nights begin, is
+  not known.
 - **The sensor sometimes reports a heart rate with the watch off the wrist.** One desk
   stretch held readings of 119 to 122 with no motion at all, which was scored as 38 minutes
   of strain (about 4 points). The app cannot see the sensor's confidence, and ignoring

@@ -7,7 +7,7 @@ sleep. Nothing leaves the watch except a small backup to your own phone.
 
 It is an estimate, not medical advice, and it does not diagnose anything.
 
-This guide covers version 0.5.0. The app is an early release and the scoring is still being
+This guide covers version 0.5.1. The app is an early release and the scoring is still being
 tuned.
 
 ## Setting up
@@ -94,8 +94,8 @@ heart rate and HRV.
 
 | What you are doing | Effect per hour, at a score near 50 |
 | --- | --- |
-| Asleep, heart rate near your resting level | Up about 7; a little more in deep sleep |
-| Asleep with a raised heart rate (after alcohol, a late meal, illness, a late workout) | Up as little as 2 |
+| Asleep, heart rate near your resting level | Up about 8; a little more in deep sleep |
+| Asleep with a raised heart rate (after alcohol, a late meal, illness, a late workout) | Up as little as 3 |
 | Lying or sitting with your heart rate close to its sleeping level | Up about 4 |
 | Sitting, awake | Down 2 to 4 |
 | On your feet: housework, cooking, standing about | Down about 5 |
@@ -114,10 +114,10 @@ Everything slows down as the score nears the end it is heading for:
 Three things follow from this:
 
 - **The score settles into your own range.** If your days cost more than your nights give
-  back, you will run lower overall, perhaps 5 to 55. With calm days and long nights it
-  might be 45 to 85. It should not sit at 0 or pin at 100.
-- **The top is hard to reach.** A good night after an ordinary day gives a morning of 75 to
-  85. Do not expect 100.
+  back, you will run lower overall, perhaps 5 to 65. With calm days and long nights it
+  might be 45 to 88. It should not sit at 0 or pin at 100.
+- **The top is hard to reach.** A good night after an ordinary day gives a morning of about
+  80, and after a heavy day about 70. Do not expect 100.
 - **Sitting still does not recharge you.** Your resting heart rate is measured while you
   sleep, and sitting awake is normally well above it. Only something close to lying down at
   rest gives a little back.

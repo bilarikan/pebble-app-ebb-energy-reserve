@@ -15,7 +15,7 @@
 #define M_GAIN_SOFT100        0     // the same for recharge: 2x at 0, nothing at 100
 
 // Recharge (g)
-#define M_G_SLEEP             12    // asleep, HRV at baseline: 7.2 points per hour
+#define M_G_SLEEP             14    // asleep, HRV at baseline: 8.4 points per hour
 #define M_RESTFUL_PCT         120   // multiplier for restful (deep) sleep minutes, percent
 #define M_G_REST              6     // awake, still, heart rate at resting: 3.6 points per hour
 // Sleep with a raised heart rate (alcohol, illness, a late workout, or not really asleep)

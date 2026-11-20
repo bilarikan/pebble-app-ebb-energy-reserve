@@ -34,7 +34,7 @@ model is written up in [docs/SCORING.md](docs/SCORING.md).
 | | Version | Why |
 | --- | --- | --- |
 | Watch | Pebble Time 2 (`emery`) | The only watch whose sensor reports HRV |
-| PebbleOS | 4.32 or later | First firmware with the HRV API; the app checks at launch. Run on 4.44.4 |
+| PebbleOS | 4.32 or later | First firmware with the HRV API; the app checks at launch. Run on 4.44.4 and 4.47.2 |
 | Pebble SDK | 4.44 | First SDK checked here whose worker header carries the HRV calls |
 | pebble-tool | 5.1.0 or later | Required by SDK 4.44 |
 

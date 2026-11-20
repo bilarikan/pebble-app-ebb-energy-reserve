@@ -8,7 +8,7 @@ update it when any of those change.
 
 ## Status
 
-Five nights and four days recorded on a Pebble Time 2 (PebbleOS 4.44.4). The scoring engine
+Six nights and five days recorded on a Pebble Time 2 (PebbleOS 4.44.4, then 4.47.2). The scoring engine
 is unit-tested, and the background worker samples HRV and scores from the watch's own
 history every 15 minutes; the app shows the result. The sleep recharge, then the daytime drain, then the shape
 of the model (rates that scale with the reserve) were changed after comparing the score with
@@ -104,7 +104,8 @@ A worker has 10,240 bytes for code, data and heap together. Two things eat it:
 
 - **The code.** `arm-none-eabi-size build/emery/pebble-worker.elf` must stay under about
   7.9 KiB; it is 7,789 bytes. That leaves a heap of 2,428.
-- **The firmware's health cache: 2,052 bytes of the worker's own heap**, allocated whenever
+- **The firmware's health cache: 2,052 bytes of the worker's own heap** (the same on
+  PebbleOS 4.44.4 and 4.47.2), allocated whenever
   the process subscribes to health events, reads sleep sessions, or sums a health metric,
   and freed only by `health_service_events_unsubscribe()`. With less than that free,
   `health_service_activities_iterate` returns no sessions and no error.
@@ -394,11 +395,32 @@ Not yet checked: the score staying current over hours with the app closed (every
 the app open, which asks the worker each minute), and the battery cost of a run every 15
 minutes.
 
+## A day on 0.5.0 (19 to 20 Nov 2026)
+
+Worn for a day, then the watch was updated to PebbleOS 4.47.2.
+
+- **Background scoring held up.** Connecting after a day found the stored score 10 minutes
+  old. The worker still had 376 bytes spare and was given nine sleep sessions on 4.47.2.
+- **No change in battery drain that the gauge can show:** 5.1% a day over the 23 hours with
+  background scoring (74% to 69%), against 5.0 to 5.1% a day over the four days before.
+- **Evening:** 13 when taken off for 2 hours 15 minutes, 9 when put back on (the off-wrist
+  estimate). The reference read 30 on being put on, as it has each evening; the wearer
+  suspects it starts from a set value by time of day (30 in the evening, 60 in the morning).
+- **Night:** asleep 21:09 to 05:06, 199 minutes restful, median RMSSD 38.9 ms against a
+  baseline of 33.0. Ebb went from 9 to 65, the reference from 30 to 95.
+
+The wearer asked for a slightly faster rise in sleep, or for the score to start from a set
+value after time off the wrist as the reference seems to. Sleep went from 7.2 to 8.4 points
+per hour. Replayed, that night ends at 71; the short night before it at 57 where it was 52;
+and the night of 15 to 16 Nov, which the wearer had put at about 62, at 74 where it was 70.
+The heaviest recorded day, repeated, settles at 4 in the evening and 64 on waking.
+
+Starting from a set value was not taken up for a gap of hours: the score had fallen from 50
+to 13 through a day of worn measurement, and replacing that with 30 would discard it. After
+a day or more off the wrist the score already restarts (at 40).
+
 ## Not done, or not known
 
-- **Background scoring over hours has not been observed.** The app logs how old the stored
-  score is at launch (`Ebb start: ... state N min old`); with the worker running it should
-  be under about 35 minutes.
 - **376 bytes is all the worker has to spare.** A firmware release with a larger health
   cache would stop the worker scoring; the app would then score when opened, as before.
 - **The fit rests on two days.** A seated day, a long calm night and an evening at rest have

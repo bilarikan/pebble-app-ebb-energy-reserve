@@ -469,9 +469,10 @@ static void test_restless_sleep(void) {
   }
   printf("  four hours asleep: +%d at resting heart rate, +%d at 18 bpm above\n", gain[0] / 100,
          gain[1] / 100);
-  // 7.2 points an hour at a reserve of 50; from 30 it starts at 1.4 times that and slows.
-  CHECK(gain[0] >= 2800 && gain[0] <= 3400, "full-rate sleep gain %d/100", gain[0]);
-  CHECK(gain[1] * 2 < gain[0] && gain[1] > 0, "raised heart rate should more than halve it: %d", gain[1]);
+  // 8.4 points an hour at a reserve of 50; from 30 it starts at 1.4 times that and slows.
+  CHECK(gain[0] >= 3200 && gain[0] <= 3900, "full-rate sleep gain %d/100", gain[0]);
+  // The rate is 39% at 18 bpm above; the gain falls by less because a lower reserve refills faster.
+  CHECK(gain[1] * 10 < gain[0] * 6 && gain[1] > 0, "raised heart rate should cut it by 40%% or more: %d", gain[1]);
 }
 
 // Heart-rate readings can pause on a wrist. Motion keeps the watch counted as worn; a table
