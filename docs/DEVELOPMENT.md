@@ -17,8 +17,13 @@ day, a long calm night, and battery cost.
 
 Version 0.5.2 is on the Pebble app store as
 [Ebb: Body Energy Reserve](https://apps.repebble.com/afae45fe97914bc5b35d3711), marked as an
-early release. To publish an update, raise `version` in `package.json`, build, and run
-`pebble publish`; the icons and screenshots used for the listing are in `store/`.
+early release. The icons and screenshots used for the listing are in `store/`.
+
+To publish an update: run the tests; check the worker's size; raise `version` in
+`package.json` and the version line in `USER-GUIDE.md`; build; install that build on a watch
+and check `worker scored` in its log shows sleep sessions (not 255); then
+`pebble publish --non-interactive --pbw <file> --is-published --release-notes "..."`, which
+finds the listing by the app's UUID; and change the version in the line above.
 
 The launcher icon (`resources/images/menu_icon.png`, 25 by 25) is drawn with a black outline
 and a white and green fill. The first one was plain white on transparent and could only be
@@ -61,6 +66,32 @@ installing; set `PYTHONUNBUFFERED=1` when sending the tool's output to a file. I
 a long press on Select asks the sampler for a measurement now instead of waiting for its
 schedule.
 
+### Replaying a record
+
+The rates were fitted by replaying the watch's own minute record through `engine.c` on a
+computer, with one constant or another changed, and comparing the result with what the
+wearer reported. `tools/replay/` does this:
+
+```bash
+python3 tools/replay/parse_log.py watch.log data/
+MARKS="19 20:30,20 05:06" tools/replay/run.sh data/ "19 06:00" 50 M_G_SLEEP=12
+```
+
+- **`parse_log.py`** turns the log of an `ER_DEBUG` build into the minute record, HRV
+  windows, baseline nights and the watch's own 24-hour curve.
+- **`run.sh DATADIR "DD HH:MM" RESERVE [M_NAME=value ...]`** starts the engine at that local
+  time with that reserve and the baseline as it stood, and prints the score each hour (or at
+  `MARKS`) beside what the watch showed. Constants named on the command line are changed in a
+  throwaway copy of `model.h`.
+- **Take the start from the watch's curve,** and start after the last night whose sleep
+  flags are missing (see the trap above).
+- **Check it first with no changes:** it should reproduce what the watch showed. It runs
+  `engine.c` only, so late sleep labels and time the app was closed are not modelled.
+- **The log is the wearer's health record.** Keep it and the parsed files out of the
+  repository; `.local/` is ignored for this.
+
+### Tests
+
 Engine tests run on the host and need no SDK:
 
 ```bash
@@ -86,6 +117,7 @@ requests.
 | `src/c/comm.c`, `src/pkjs/` | Settings page and baseline backup |
 | `src/c/demo_data.c` | Synthetic data, compiled only with `ER_DEMO` |
 | `tests/` | Host-side engine tests |
+| `tools/replay/` | Replays a watch log through the engine on a computer, for fitting the rates |
 
 How the pieces fit:
 

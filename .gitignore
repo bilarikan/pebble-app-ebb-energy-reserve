@@ -5,3 +5,11 @@ node_modules/
 tests/test_engine
 *.dSYM/
 *.pbw
+
+# Local notes for coding agents, and the wearer's own data pulled off the watch
+AGENTS.md
+agent.md
+agents.md
+CLAUDE.md
+claude.md
+.local/
