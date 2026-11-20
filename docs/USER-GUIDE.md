@@ -7,7 +7,7 @@ sleep. Nothing leaves the watch except a small backup to your own phone.
 
 It is an estimate, not medical advice, and it does not diagnose anything.
 
-This guide covers version 0.5.1. The app is an early release and the scoring is still being
+This guide covers version 0.5.2. The app is an early release and the scoring is still being
 tuned.
 
 ## Setting up

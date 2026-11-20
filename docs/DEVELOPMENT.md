@@ -20,6 +20,10 @@ Version 0.5.1 is on the Pebble app store as
 early release. To publish an update, raise `version` in `package.json`, build, and run
 `pebble publish`; the icons and screenshots used for the listing are in `store/`.
 
+The launcher icon (`resources/images/menu_icon.png`, 25 by 25) is drawn with a black outline
+and a white and green fill. The first one was plain white on transparent and could only be
+seen on the highlighted row of the watch's app menu. The launcher shows the green as grey.
+
 "Ebb" is a working name. The PRD leaves naming open and rules out "Body Battery" and
 "Energy Reserve"; changing it is one line (`displayName` in `package.json`).
 
