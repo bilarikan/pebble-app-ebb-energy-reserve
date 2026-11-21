@@ -15,6 +15,10 @@ of the model (rates that scale with the reserve) were changed after comparing th
 Garmin Body Battery readings and with how the wearer felt. Not yet recorded: a quiet seated
 day, a long calm night, and battery cost.
 
+Garmin and Body Battery are named in these notes only as the reference the readings were
+compared with. Ebb is not affiliated with or endorsed by Garmin and uses none of its code or
+methods; see "Trademarks" in the [README](../README.md).
+
 Version 0.5.3 is on the Pebble app store as
 [Ebb: Body Energy Reserve](https://apps.repebble.com/afae45fe97914bc5b35d3711), marked as an
 early release. The icons and screenshots used for the listing are in `store/`.

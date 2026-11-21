@@ -72,3 +72,11 @@ should read it, and [docs/SCORING.md](docs/SCORING.md), before changing the code
 
 Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE). If you build on this, keep the
 NOTICE file with your copy and link back to this project.
+
+## Trademarks
+
+Garmin, Garmin Instinct and Body Battery are trademarks of their respective owner. They are
+named in the development notes only to say that readings from a Garmin watch were compared
+with Ebb's. Ebb is not affiliated with, endorsed by or sponsored by Garmin, and uses none of
+its code, methods or materials. Pebble and Pebble Time are trademarks of their respective
+owners.
