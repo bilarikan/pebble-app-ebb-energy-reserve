@@ -7,7 +7,7 @@ sleep. Nothing leaves the watch except a small backup to your own phone.
 
 It is an estimate, not medical advice, and it does not diagnose anything.
 
-This guide covers version 0.5.2. The app is an early release and the scoring is still being
+This guide covers version 0.5.3. The app is an early release and the scoring is still being
 tuned.
 
 ## Setting up
@@ -94,15 +94,15 @@ heart rate and HRV.
 
 | What you are doing | Effect per hour, at a score near 50 |
 | --- | --- |
-| Asleep, heart rate near your resting level | Up about 8; a little more in deep sleep |
+| Asleep, heart rate near your resting level | Up about 10; a little more in deep sleep |
 | Asleep with a raised heart rate (after alcohol, a late meal, illness, a late workout) | Up as little as 3 |
 | Lying or sitting with your heart rate close to its sleeping level | Up about 4 |
 | Sitting, awake | Down 2 to 4 |
-| On your feet: housework, cooking, standing about | Down about 5 |
+| On your feet: housework, cooking, standing about | Down about 3 |
 | Easy walking | Down 7 to 9 |
 | Hard exercise | Down 25 or more |
 | Still, but heart rate well above resting or HRV low (strain) | Down up to 11 |
-| Watch off your wrist during the day | Down 3, as a guess |
+| Watch off your wrist during the day | Down about 2, as a guess |
 
 Everything slows down as the score nears the end it is heading for:
 
@@ -114,10 +114,10 @@ Everything slows down as the score nears the end it is heading for:
 Three things follow from this:
 
 - **The score settles into your own range.** If your days cost more than your nights give
-  back, you will run lower overall, perhaps 5 to 65. With calm days and long nights it
+  back, you will run lower overall, perhaps 15 to 75. With calm days and long nights it
   might be 45 to 88. It should not sit at 0 or pin at 100.
 - **The top is hard to reach.** A good night after an ordinary day gives a morning of about
-  80, and after a heavy day about 70. Do not expect 100.
+  80 to 85, and after a heavy day about 75. Do not expect 100.
 - **Sitting still does not recharge you.** Your resting heart rate is measured while you
   sleep, and sitting awake is normally well above it. Only something close to lying down at
   rest gives a little back.
@@ -156,7 +156,7 @@ still counts as off when a notification buzzes it or it gets nudged.
 
 | How long it is off | What happens | What you see |
 | --- | --- | --- |
-| During the day, up to 16 hours after you woke | The score drains at about 3 points an hour (less when it is low), a guess at an ordinary day | "Not worn: estimating" |
+| During the day, up to 16 hours after you woke | The score drains at about 2 points an hour (less when it is low), a guess at an ordinary day | "Not worn: estimating" |
 | Overnight, or longer | The score freezes | "Not worn: score frozen" |
 | Back on after an hour or more | Carries on from where it was | "Resumed after a gap", LOW CONF until the next full night |
 | Back on after a day or more | Restarts at 40. Your baseline is kept | "Restarted after time off", LOW CONF until the next full night |

@@ -8,7 +8,7 @@ update it when any of those change.
 
 ## Status
 
-Six nights and five days recorded on a Pebble Time 2 (PebbleOS 4.44.4, then 4.47.2). The scoring engine
+Seven nights and six days recorded on a Pebble Time 2 (PebbleOS 4.44.4, then 4.47.2). The scoring engine
 is unit-tested, and the background worker samples HRV and scores from the watch's own
 history every 15 minutes; the app shows the result. The sleep recharge, then the daytime drain, then the shape
 of the model (rates that scale with the reserve) were changed after comparing the score with
@@ -163,7 +163,7 @@ turn the night into waking hours. That is what the first version did (score 51 t
 | FR2 | Store HRV windows, resting HR, timestamps for days | Built: 210 windows (about 2.5 days) and 14 nightly summaries |
 | FR3 | Engine recomputes on a fixed interval | Built: every 15 minutes in the background worker, every minute while the app is open |
 | FR4 | Score, state, curve, updated time, confidence flag | Built |
-| FR5 | Not worn: freeze, mark stale, resume low confidence | Built and tested. One departure: in the waking day, time off the wrist drains at an assumed 3 points per hour instead of freezing (see the first day below). After a day or more off, the score restarts at the first-run value instead of resuming |
+| FR5 | Not worn: freeze, mark stale, resume low confidence | Built and tested. One departure: in the waking day, time off the wrist drains at an assumed rate (3 points per hour at first, 1.8 since 0.5.3) instead of freezing (see the first day below). After a day or more off, the score restarts at the first-run value instead of resuming |
 | FR6 | Onboarding: estimate, not medical advice | Built |
 | FR7 | Reason line | Built |
 | FR8 | Breakdown view | Built |
@@ -455,6 +455,50 @@ Starting from a set value was not taken up for a gap of hours: the score had fal
 to 13 through a day of worn measurement, and replacing that with 30 would discard it. After
 a day or more off the wrist the score already restarts (at 40).
 
+## A day and night on 0.5.2 (20 to 21 Nov 2026)
+
+Worn through the day except about 11:00 to 15:00 and 17:00 to 21:00, then all night. Asleep
+23:59 to 06:27, median RMSSD 38.3 ms against a baseline of 33.3. The watch read 10 at 21:00,
+70 at 06:15 and 59 at 08:10. A Garmin put on at 08:10 read 78, and the wearer felt nearer 78.
+The wearer felt the score drained too fast while sitting and gave too little for recovery.
+
+That reading of 78 on being put on also ends the guess in the section above: the reference
+does not start from a set value of 30 in the evening and 60 in the morning. It probably
+keeps estimating while off the wrist.
+
+The replay matched the watch to within 3 points. Where the points went:
+
+| Stretch | Walking | Light movement | Sitting still ("stress") | Off-wrist estimate |
+| --- | --- | --- | --- | --- |
+| 20 Nov 08:45 to 21:00 (48 to 10) | 18 | 6 | 2.4 | 11 |
+| 21 Nov 06:15 to 08:10 (69 to 59) | 1 | 8 | 1.3 | 0 |
+
+- **Sitting still while wearing the watch was already cheap.** Lowering the stress drain, widening
+  the resting band, raising awake rest or shortening the cooldown each moved every reading
+  by a point at most. Awake rest earned nothing at all: it needs a heart rate within 6 bpm
+  of the sleeping one.
+- **The morning's drop was light movement.** 79 of the 110 minutes after waking had 600 or
+  more motion counts with few steps, heart rate 78 to 94. The wearer confirms: clearing the
+  kitchen counter and making coffee, then sitting for a bit. Most of those minutes had over
+  1,500 counts, so raising the threshold to 900 changed nothing.
+- **The night's gain matches the reference; the level does not.** On 19 to 20 Nov Ebb went
+  from 9 to 71, the reference from 30 to 95. The gap builds up through the day.
+
+What changed (0.5.3): light movement 4.8 to 3.0 points per hour, the off-wrist estimate 3 to
+1.8, sleep 8.4 to 9.6. Replayed, each stretch from the watch's own value:
+
+| | 16 Nov 18:45 | 17 Nov waking | 19 Nov 21:00 | 20 Nov waking | 20 Nov 21:00 | 21 Nov 06:15 | 21 Nov 08:10 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.5.2 | 12 | 68 | 9 | 71 | 10 | 68 | 59 |
+| 0.5.3 | 18 | 75 | 15 | 78 | 16 | 74 | 67 |
+| Reference or felt | | | about 30 | 95 | | | 78 (felt nearer 78) |
+
+The heaviest recorded day, repeated until it settles, now gives 15 in the evening and 76 on
+waking, against 6 and 68 before. This conflicts with an earlier judgement: on 16 Nov a
+waking 73 was "a bit too high", and that night now replays to 75. The wearer chose these
+values knowing that. The off-wrist rate is 1.8, not a round 2, because rates are whole
+hundredths of a point per minute.
+
 ## Not done, or not known
 
 - **376 bytes is all the worker has to spare.** A firmware release with a larger health
@@ -473,3 +517,39 @@ a day or more off the wrist the score already restarts (at 40).
   then, that night counts without HRV.
 - Interval pacing, the motion threshold and every weight are open; see
   [SCORING.md](SCORING.md).
+
+## Future considerations
+
+Changes to the shape of the model that have been suggested but not made. Each needs the
+owner's go-ahead.
+
+### Rest while awake judged by HRV, not heart rate
+
+**The idea.** A still, awake minute would recharge when the latest awake HRV window is at or
+above its reference (75% of the overnight baseline), even if heart rate is a normal sitting
+level above the sleeping one. Today rest needs heart rate within 6 bpm of the sleeping
+resting rate, which sitting up almost never reaches, so quiet time awake earns nothing: on
+20 Nov the rest term gave 0.0 points all day. The reference device does credit calm awake
+time, and its stress figure is HRV-led, so this would bring the two closer on quiet
+afternoons and evenings.
+
+**One way to build it.** In `engine.c`, for a still minute past the cooldown: with a fresh awake window
+and `q` at or above 100%, apply rest at `M_G_REST x m` whatever the heart rate (up to some
+ceiling, say 20 bpm above resting, so a raised pulse is never called rest); with `q` below
+80%, stress as now; in between, or with no fresh window, the present heart-rate rule. No new
+state is needed, so `ENGINE_VERSION` would not change.
+
+**Why it was not done now (21 Nov 2026).** It changes who decides rest, which shifts every
+day, and the owner preferred the smaller change. Also:
+
+- **Awake windows are scarce.** The sampler tries every 30 minutes when the wearer has been
+  still for 3 minutes, and the filter rejects many. Over the worn hours of 20 Nov it kept two
+  (09:46 and 16:07). The rule would mostly fall back to heart rate unless awake sampling
+  runs more often, which costs sensor time.
+- **One window stands for up to 45 minutes.** A single good reading would credit three
+  quarters of an hour; a single wild interval moves a 60-second RMSSD a lot.
+- **The worker has 376 bytes to spare.** The logic is small, but it must be measured.
+
+**How to try it.** Add it behind a constant in a throwaway copy, replay the recorded days
+with `tools/replay/run.sh`, and count how many minutes would change. A day of mostly sitting,
+worn throughout, would show its effect best; none has been recorded yet.

@@ -15,7 +15,7 @@
 #define M_GAIN_SOFT100        0     // the same for recharge: 2x at 0, nothing at 100
 
 // Recharge (g)
-#define M_G_SLEEP             14    // asleep, HRV at baseline: 8.4 points per hour
+#define M_G_SLEEP             16    // asleep, HRV at baseline: 9.6 points per hour
 #define M_RESTFUL_PCT         120   // multiplier for restful (deep) sleep minutes, percent
 #define M_G_REST              6     // awake, still, heart rate at resting: 3.6 points per hour
 // Sleep with a raised heart rate (alcohol, illness, a late workout, or not really asleep)
@@ -33,7 +33,7 @@
 #define M_COOLDOWN_MIN        10    // after moving, elevated HR is recovery, not stress
 // On your feet without walking anywhere (housework, cooking, standing between short walks),
 // and the minutes straight after moving. Needs no heart rate.
-#define M_D_LIGHT             8     // 4.8 points per hour
+#define M_D_LIGHT             5     // 3.0 points per hour
 #define M_VMC_LIGHT           600   // motion counts in a minute that count as on your feet
 
 // Stress drain (d_s) = BASE + GAIN * stress level, counted only at low motion.
@@ -45,7 +45,7 @@
 #define M_STRESS_HR_SPAN      34    // bpm over which HR stress goes from 0 to 1
 
 // Not worn during the waking day: assume an ordinary day rather than no cost at all.
-#define M_D_AWAY              5     // 3 points per hour at a reserve of 50
+#define M_D_AWAY              3     // 1.8 points per hour at a reserve of 50
 #define M_AWAY_DAY_MIN        (16 * 60)   // only this long after the last main wake
 #define M_STRESS_HRV_Q_PCT    80    // awake HRV below this share of the awake reference is stress
 #define M_STRESS_HRV_SPAN     40    // percentage points over which HRV stress goes from 0 to 1
